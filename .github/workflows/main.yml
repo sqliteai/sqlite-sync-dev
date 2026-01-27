@@ -404,7 +404,7 @@ jobs:
             platform_name=$(basename "$platform_dir")
             echo "  Publishing @sqliteai/sqlite-sync-${platform_name}..."
             cd "$platform_dir"
-            npm publish --provenance --access public
+            npm publish --provenance --access public --tag latest
             cd ..
             echo "  ✓ Published @sqliteai/sqlite-sync-${platform_name}"
           done
@@ -412,7 +412,7 @@ jobs:
 
           # Publish main package
           echo "Publishing main package to npm..."
-          npm publish --provenance --access public
+          npm publish --provenance --access public --tag latest
           echo "✓ Published @sqliteai/sqlite-sync@${{ steps.tag.outputs.version }}"
 
           echo ""
@@ -432,7 +432,7 @@ jobs:
 
           echo "Publishing @sqliteai/sqlite-sync-expo to npm..."
           cd expo-package
-          npm publish --provenance --access public
+          npm publish --provenance --access public --tag latest
           echo "✓ Published @sqliteai/sqlite-sync-expo@${{ steps.tag.outputs.version }}"
 
       - uses: softprops/action-gh-release@v2.2.1
