@@ -288,7 +288,7 @@ postgres-supabase-run-test:
 # Run smoke test against Docker standalone database
 postgres-docker-run-test:
 	@echo "Running Docker test..."
-	@PGPASSWORD="$(PG_DOCKER_DB_PASSWORD)" psql postgresql://$(PG_DOCKER_DB_USER)@$(PG_DOCKER_DB_HOST):$(PG_DOCKER_DB_PORT)/$(PG_DOCKER_DB_NAME) -f docker/postgresql/full_test.sql
+	@PGPASSWORD="$(PG_DOCKER_DB_PASSWORD)" psql postgresql://$(PG_DOCKER_DB_USER)@$(PG_DOCKER_DB_HOST):$(PG_DOCKER_DB_PORT)/$(PG_DOCKER_DB_NAME) -f test/postgresql/full_test.sql
 	@echo "Test completed."
 
 # ============================================================================

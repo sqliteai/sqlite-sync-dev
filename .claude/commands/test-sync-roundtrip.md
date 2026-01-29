@@ -11,7 +11,9 @@ Execute a full roundtrip sync test between a local SQLite database and the local
 
 ### Step 1: Get DDL from User
 
-Ask the user to provide a DDL query for the table to test. It can be in PostgreSQL or SQLite format. Example:
+Ask the user to provide a DDL query for the table(s) to test. It can be in PostgreSQL or SQLite format. Offer the following options:
+
+**Option 1: Simple TEXT primary key**
 ```sql
 CREATE TABLE test_sync (
     id TEXT PRIMARY KEY NOT NULL,
@@ -19,6 +21,33 @@ CREATE TABLE test_sync (
     value INTEGER
 );
 ```
+
+**Option 2: UUID primary key**
+```sql
+CREATE TABLE test_uuid (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Option 3: Two tables scenario (tests multi-table sync)**
+```sql
+CREATE TABLE authors (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT,
+    email TEXT
+);
+
+CREATE TABLE books (
+    id TEXT PRIMARY KEY NOT NULL,
+    title TEXT,
+    author_id TEXT,
+    published_year INTEGER
+);
+```
+
+**Note:** Avoid INTEGER PRIMARY KEY for sync tests as it is not recommended for distributed sync scenarios (conflicts with auto-increment across devices).
 
 ### Step 2: Convert DDL
 
@@ -32,7 +61,7 @@ Convert the provided DDL to both SQLite and PostgreSQL compatible formats if nee
 
 Run the token script from the cloudsync project:
 ```bash
-cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=andrea@sqlitecloud.io -password="password" -apikey=sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz -auth-url=http://127.0.0.1:54321
+cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=claude@sqlitecloud.io -password="password" -apikey=sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz -auth-url=http://127.0.0.1:54321
 ```
 Save the JWT token for later use.
 
