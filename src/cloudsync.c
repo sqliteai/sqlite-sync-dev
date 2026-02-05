@@ -1208,18 +1208,20 @@ int merge_insert_col (cloudsync_context *data, cloudsync_table_context *table, c
         return rc;
     }
     
-    // bind value
+    // bind value (always bind all expected parameters for correct prepared statement handling)
     if (col_value) {
         rc = databasevm_bind_value(vm, table->npks+1, col_value);
         if (rc == DBRES_OK) rc = databasevm_bind_value(vm, table->npks+2, col_value);
-        if (rc != DBRES_OK) {
-            cloudsync_set_dberror(data);
-            dbvm_reset(vm);
-            return rc;
-        }
-        
+    } else {
+        rc = databasevm_bind_null(vm, table->npks+1);
+        if (rc == DBRES_OK) rc = databasevm_bind_null(vm, table->npks+2);
     }
-    
+    if (rc != DBRES_OK) {
+        cloudsync_set_dberror(data);
+        dbvm_reset(vm);
+        return rc;
+    }
+
     // perform real operation and disable triggers
     
     // in case of GOS we reused the table->col_merge_stmt statement
