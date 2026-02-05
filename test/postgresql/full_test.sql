@@ -29,6 +29,7 @@
 \ir 19_uuid_pk_with_unmapped_cols.sql
 \ir 20_init_with_existing_data.sql
 \ir 21_null_value_sync.sql
+\ir 22_null_column_roundtrip.sql
 
 -- 'Test summary'
 \echo '\nTest summary:'
