@@ -253,6 +253,7 @@ jobs:
 
       - name: run postgresql tests
         run: |
+          docker exec cloudsync-postgres mkdir -p /tmp/cloudsync/test
           docker cp test/postgresql cloudsync-postgres:/tmp/cloudsync/test/postgresql
           docker exec cloudsync-postgres psql -U postgres -d postgres -f /tmp/cloudsync/test/postgresql/full_test.sql
 
