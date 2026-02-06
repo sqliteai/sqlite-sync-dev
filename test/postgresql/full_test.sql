@@ -32,6 +32,7 @@
 \ir 22_null_column_roundtrip.sql
 \ir 23_uuid_column_roundtrip.sql
 \ir 24_nullable_types_roundtrip.sql
+\ir 25_boolean_type_issue.sql
 
 -- 'Test summary'
 \echo '\nTest summary:'
