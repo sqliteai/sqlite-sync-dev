@@ -30,6 +30,8 @@
 \ir 20_init_with_existing_data.sql
 \ir 21_null_value_sync.sql
 \ir 22_null_column_roundtrip.sql
+\ir 23_uuid_column_roundtrip.sql
+\ir 24_nullable_types_roundtrip.sql
 
 -- 'Test summary'
 \echo '\nTest summary:'
