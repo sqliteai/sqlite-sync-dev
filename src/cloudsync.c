@@ -49,12 +49,12 @@
 #define CLOUDSYNC_INIT_NTABLES                  64
 #define CLOUDSYNC_MIN_DB_VERSION                0
 
-#define CLOUDSYNC_PAYLOAD_SKIP_SCHEMA_HASH_CHECK        1
 #define CLOUDSYNC_PAYLOAD_MINBUF_SIZE                   (512*1024)
 #define CLOUDSYNC_PAYLOAD_SIGNATURE                     0x434C5359  /* 'C','L','S','Y' */
 #define CLOUDSYNC_PAYLOAD_VERSION_ORIGNAL               1
 #define CLOUDSYNC_PAYLOAD_VERSION_1                     CLOUDSYNC_PAYLOAD_VERSION_ORIGNAL
 #define CLOUDSYNC_PAYLOAD_VERSION_2                     2
+#define CLOUDSYNC_PAYLOAD_VERSION_LATEST                CLOUDSYNC_PAYLOAD_VERSION_2
 #define CLOUDSYNC_PAYLOAD_MIN_VERSION_WITH_CHECKSUM     CLOUDSYNC_PAYLOAD_VERSION_2
 
 #ifndef MAX
@@ -62,10 +62,6 @@
 #endif
 
 #define DEBUG_DBERROR(_rc, _fn, _data)   do {if (_rc != DBRES_OK) printf("Error in %s: %s\n", _fn, database_errmsg(_data));} while (0)
-
-#if CLOUDSYNC_PAYLOAD_SKIP_SCHEMA_HASH_CHECK
-bool schema_hash_disabled = true;
-#endif
 
 typedef enum {
     CLOUDSYNC_PK_INDEX_TBL          = 0,
@@ -1208,18 +1204,20 @@ int merge_insert_col (cloudsync_context *data, cloudsync_table_context *table, c
         return rc;
     }
     
-    // bind value
+    // bind value (always bind all expected parameters for correct prepared statement handling)
     if (col_value) {
         rc = databasevm_bind_value(vm, table->npks+1, col_value);
         if (rc == DBRES_OK) rc = databasevm_bind_value(vm, table->npks+2, col_value);
-        if (rc != DBRES_OK) {
-            cloudsync_set_dberror(data);
-            dbvm_reset(vm);
-            return rc;
-        }
-        
+    } else {
+        rc = databasevm_bind_null(vm, table->npks+1);
+        if (rc == DBRES_OK) rc = databasevm_bind_null(vm, table->npks+2);
     }
-    
+    if (rc != DBRES_OK) {
+        cloudsync_set_dberror(data);
+        dbvm_reset(vm);
+        return rc;
+    }
+
     // perform real operation and disable triggers
     
     // in case of GOS we reused the table->col_merge_stmt statement
@@ -2358,15 +2356,17 @@ int cloudsync_payload_apply (cloudsync_context *data, const char *payload, int b
     header.nrows = ntohl(header.nrows);
     header.schema_hash = ntohll(header.schema_hash);
     
-    #if !CLOUDSYNC_PAYLOAD_SKIP_SCHEMA_HASH_CHECK
-    if (!data || header.schema_hash != data->schema_hash) {
-        if (!database_check_schema_hash(data, header.schema_hash)) {
-            char buffer[1024];
-            snprintf(buffer, sizeof(buffer), "Cannot apply the received payload because the schema hash is unknown %llu.", header.schema_hash);
-            return cloudsync_set_error(data, buffer, DBRES_MISUSE);
+    // compare schema_hash only if not disabled and if the received payload was created with the current header version
+    // to avoid schema hash mismatch when processed by a peer with a different extension version during software updates.
+    if (dbutils_settings_get_int64_value(data, CLOUDSYNC_KEY_SKIP_SCHEMA_HASH_CHECK) == 0 && header.version == CLOUDSYNC_PAYLOAD_VERSION_LATEST ) {
+        if (header.schema_hash != data->schema_hash) {
+            if (!database_check_schema_hash(data, header.schema_hash)) {
+                char buffer[1024];
+                snprintf(buffer, sizeof(buffer), "Cannot apply the received payload because the schema hash is unknown %llu.", header.schema_hash);
+                return cloudsync_set_error(data, buffer, DBRES_MISUSE);
+            }
         }
     }
-    #endif
     
     // sanity check header
     if ((header.signature != CLOUDSYNC_PAYLOAD_SIGNATURE) || (header.ncols == 0)) {
@@ -2539,8 +2539,8 @@ int cloudsync_payload_get (cloudsync_context *data, char **blob, int *blob_size,
     
     // retrieve BLOB
     char sql[1024];
-    snprintf(sql, sizeof(sql), "WITH max_db_version AS (SELECT MAX(db_version) AS max_db_version FROM cloudsync_changes) "
-                               "SELECT * FROM (SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) AS payload, max_db_version AS max_db_version, MAX(IIF(db_version = max_db_version, seq, NULL)) FROM cloudsync_changes, max_db_version WHERE site_id=cloudsync_siteid() AND (db_version>%d OR (db_version=%d AND seq>%d))) WHERE payload IS NOT NULL", *db_version, *db_version, *seq);
+    snprintf(sql, sizeof(sql), "WITH max_db_version AS (SELECT MAX(db_version) AS max_db_version FROM cloudsync_changes WHERE site_id=cloudsync_siteid()) "
+                               "SELECT * FROM (SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) AS payload, max_db_version AS max_db_version, MAX(IIF(db_version = max_db_version, seq, 0)) FROM cloudsync_changes, max_db_version WHERE site_id=cloudsync_siteid() AND (db_version>%d OR (db_version=%d AND seq>%d))) WHERE payload IS NOT NULL", *db_version, *db_version, *seq);
     
     int64_t len = 0;
     int rc = database_select_blob_2int(data, sql, blob, &len, new_db_version, new_seq);
