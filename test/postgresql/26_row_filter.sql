@@ -1,15 +1,15 @@
 -- 'Row-level filter (conditional sync) test'
 
-\set testid '20'
+\set testid '26'
 \ir helper_test_init.sql
 
 -- Create first database
 \connect postgres
 \ir helper_psql_conn_setup.sql
-DROP DATABASE IF EXISTS cloudsync_test_1;
-CREATE DATABASE cloudsync_test_1;
+DROP DATABASE IF EXISTS cloudsync_test_26_a;
+CREATE DATABASE cloudsync_test_26_a;
 
-\connect cloudsync_test_1
+\connect cloudsync_test_26_a
 \ir helper_psql_conn_setup.sql
 CREATE EXTENSION IF NOT EXISTS cloudsync;
 
@@ -64,10 +64,10 @@ WHERE site_id = cloudsync_siteid() \gset
 
 \connect postgres
 \ir helper_psql_conn_setup.sql
-DROP DATABASE IF EXISTS cloudsync_test_2;
-CREATE DATABASE cloudsync_test_2;
+DROP DATABASE IF EXISTS cloudsync_test_26_b;
+CREATE DATABASE cloudsync_test_26_b;
 
-\connect cloudsync_test_2
+\connect cloudsync_test_26_b
 \ir helper_psql_conn_setup.sql
 CREATE EXTENSION IF NOT EXISTS cloudsync;
 CREATE TABLE tasks (id TEXT PRIMARY KEY NOT NULL, title TEXT, user_id INTEGER);
@@ -98,8 +98,8 @@ SELECT (:fail::int + 1) AS fail \gset
 -- Cleanup
 \ir helper_test_cleanup.sql
 \if :should_cleanup
-DROP DATABASE IF EXISTS cloudsync_test_1;
-DROP DATABASE IF EXISTS cloudsync_test_2;
+DROP DATABASE IF EXISTS cloudsync_test_26_a;
+DROP DATABASE IF EXISTS cloudsync_test_26_b;
 \else
 \echo [INFO] !!!!!
 \endif
