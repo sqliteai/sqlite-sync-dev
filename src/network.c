@@ -897,10 +897,10 @@ void cloudsync_network_check_changes (sqlite3_context *context, int argc, sqlite
     DEBUG_FUNCTION("cloudsync_network_check_changes");
     
     int nrows = 0;
-    cloudsync_network_check_internal(context, &nrows);
+    int rc = cloudsync_network_check_internal(context, &nrows);
     
     // returns number of applied rows
-    sqlite3_result_int(context, nrows);
+    if (rc == SQLITE_OK) sqlite3_result_int(context, nrows);
 }
 
 void cloudsync_network_reset_sync_version (sqlite3_context *context, int argc, sqlite3_value **argv) {
