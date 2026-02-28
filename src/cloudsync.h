@@ -28,12 +28,6 @@ extern "C" {
 
 #define CLOUDSYNC_CHANGES_NCOLS                 9
 
-typedef enum {
-    CLOUDSYNC_PAYLOAD_APPLY_WILL_APPLY          = 1,
-    CLOUDSYNC_PAYLOAD_APPLY_DID_APPLY           = 2,
-    CLOUDSYNC_PAYLOAD_APPLY_CLEANUP             = 3
-} CLOUDSYNC_PAYLOAD_APPLY_STEPS;
-
 // CRDT Algos
 table_algo cloudsync_algo_from_name (const char *algo_name);
 const char *cloudsync_algo_name (table_algo algo);

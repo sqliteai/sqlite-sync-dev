@@ -210,6 +210,129 @@ char *sql_build_upsert_pk_and_col (cloudsync_context *data, const char *table_na
     return (rc == DBRES_OK) ? query : NULL;
 }
 
+char *sql_build_upsert_pk_and_multi_cols (cloudsync_context *data, const char *table_name, const char **colnames, int ncolnames, const char *schema) {
+    if (ncolnames <= 0 || !colnames) return NULL;
+
+    char *qualified = database_build_base_ref(schema, table_name);
+    if (!qualified) return NULL;
+
+    // Build VALUES list for column names: ('col_a',1),('col_b',2)
+    // Column names are SQL literals here, so escape single quotes
+    size_t values_cap = (size_t)ncolnames * 128 + 1;
+    char *col_values = cloudsync_memory_alloc(values_cap);
+    if (!col_values) { cloudsync_memory_free(qualified); return NULL; }
+
+    size_t vpos = 0;
+    for (int i = 0; i < ncolnames; i++) {
+        char esc[1024];
+        sql_escape_literal(colnames[i], esc, sizeof(esc));
+        vpos += snprintf(col_values + vpos, values_cap - vpos, "%s('%s'::text,%d)",
+                         i > 0 ? "," : "", esc, i + 1);
+    }
+
+    // Build meta-query that generates the final INSERT...ON CONFLICT SQL with proper types
+    char *meta_sql = cloudsync_memory_mprintf(
+        "WITH tbl AS ("
+        "  SELECT to_regclass('%s') AS oid"
+        "), "
+        "pk AS ("
+        "  SELECT a.attname, k.ord, format_type(a.atttypid, a.atttypmod) AS coltype "
+        "  FROM pg_index x "
+        "  JOIN tbl t ON t.oid = x.indrelid "
+        "  JOIN LATERAL unnest(x.indkey) WITH ORDINALITY AS k(attnum, ord) ON true "
+        "  JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = k.attnum "
+        "  WHERE x.indisprimary "
+        "  ORDER BY k.ord"
+        "), "
+        "pk_count AS (SELECT count(*) AS n FROM pk), "
+        "cols AS ("
+        "  SELECT u.colname, format_type(a.atttypid, a.atttypmod) AS coltype, u.ord "
+        "  FROM (VALUES %s) AS u(colname, ord) "
+        "  JOIN pg_attribute a ON a.attrelid = (SELECT oid FROM tbl) AND a.attname = u.colname "
+        "  WHERE a.attnum > 0 AND NOT a.attisdropped"
+        ") "
+        "SELECT "
+        "  'INSERT INTO ' || (SELECT (oid::regclass)::text FROM tbl)"
+        "  || ' (' || (SELECT string_agg(format('%%I', attname), ',' ORDER BY ord) FROM pk)"
+        "  || ',' || (SELECT string_agg(format('%%I', colname), ',' ORDER BY ord) FROM cols) || ')'"
+        "  || ' VALUES (' || (SELECT string_agg(format('$%%s::%%s', ord, coltype), ',' ORDER BY ord) FROM pk)"
+        "  || ',' || (SELECT string_agg(format('$%%s::%%s', (SELECT n FROM pk_count) + ord, coltype), ',' ORDER BY ord) FROM cols) || ')'"
+        "  || ' ON CONFLICT (' || (SELECT string_agg(format('%%I', attname), ',' ORDER BY ord) FROM pk) || ')'"
+        "  || ' DO UPDATE SET ' || (SELECT string_agg(format('%%I=EXCLUDED.%%I', colname, colname), ',' ORDER BY ord) FROM cols)"
+        "  || ';';",
+        qualified, col_values
+    );
+
+    cloudsync_memory_free(qualified);
+    cloudsync_memory_free(col_values);
+    if (!meta_sql) return NULL;
+
+    char *query = NULL;
+    int rc = database_select_text(data, meta_sql, &query);
+    cloudsync_memory_free(meta_sql);
+
+    return (rc == DBRES_OK) ? query : NULL;
+}
+
+char *sql_build_update_pk_and_multi_cols (cloudsync_context *data, const char *table_name, const char **colnames, int ncolnames, const char *schema) {
+    if (ncolnames <= 0 || !colnames) return NULL;
+
+    char *qualified = database_build_base_ref(schema, table_name);
+    if (!qualified) return NULL;
+
+    // Build VALUES list for column names: ('col_a',1),('col_b',2)
+    size_t values_cap = (size_t)ncolnames * 128 + 1;
+    char *col_values = cloudsync_memory_alloc(values_cap);
+    if (!col_values) { cloudsync_memory_free(qualified); return NULL; }
+
+    size_t vpos = 0;
+    for (int i = 0; i < ncolnames; i++) {
+        char esc[1024];
+        sql_escape_literal(colnames[i], esc, sizeof(esc));
+        vpos += snprintf(col_values + vpos, values_cap - vpos, "%s('%s'::text,%d)",
+                         i > 0 ? "," : "", esc, i + 1);
+    }
+
+    // Build meta-query that generates UPDATE ... SET col=$ WHERE pk=$
+    char *meta_sql = cloudsync_memory_mprintf(
+        "WITH tbl AS ("
+        "  SELECT to_regclass('%s') AS oid"
+        "), "
+        "pk AS ("
+        "  SELECT a.attname, k.ord, format_type(a.atttypid, a.atttypmod) AS coltype "
+        "  FROM pg_index x "
+        "  JOIN tbl t ON t.oid = x.indrelid "
+        "  JOIN LATERAL unnest(x.indkey) WITH ORDINALITY AS k(attnum, ord) ON true "
+        "  JOIN pg_attribute a ON a.attrelid = x.indrelid AND a.attnum = k.attnum "
+        "  WHERE x.indisprimary "
+        "  ORDER BY k.ord"
+        "), "
+        "pk_count AS (SELECT count(*) AS n FROM pk), "
+        "cols AS ("
+        "  SELECT u.colname, format_type(a.atttypid, a.atttypmod) AS coltype, u.ord "
+        "  FROM (VALUES %s) AS u(colname, ord) "
+        "  JOIN pg_attribute a ON a.attrelid = (SELECT oid FROM tbl) AND a.attname = u.colname "
+        "  WHERE a.attnum > 0 AND NOT a.attisdropped"
+        ") "
+        "SELECT "
+        "  'UPDATE ' || (SELECT (oid::regclass)::text FROM tbl)"
+        "  || ' SET ' || (SELECT string_agg(format('%%I=$%%s::%%s', colname, (SELECT n FROM pk_count) + ord, coltype), ',' ORDER BY ord) FROM cols)"
+        "  || ' WHERE ' || (SELECT string_agg(format('%%I=$%%s::%%s', attname, ord, coltype), ' AND ' ORDER BY ord) FROM pk)"
+        "  || ';';",
+        qualified, col_values
+    );
+
+    cloudsync_memory_free(qualified);
+    cloudsync_memory_free(col_values);
+    if (!meta_sql) return NULL;
+
+    char *query = NULL;
+    int rc = database_select_text(data, meta_sql, &query);
+    cloudsync_memory_free(meta_sql);
+
+    return (rc == DBRES_OK) ? query : NULL;
+}
+
 char *sql_build_select_cols_by_pk (cloudsync_context *data, const char *table_name, const char *colname, const char *schema) {
     UNUSED_PARAMETER(data);
     char *qualified = database_build_base_ref(schema, table_name);
@@ -2698,15 +2821,24 @@ void *database_value_dup (dbvalue_t *value) {
     if (!v) return NULL;
 
     pgvalue_t *copy = pgvalue_create(v->datum, v->typeid, v->typmod, v->collation, v->isnull);
-    if (v->detoasted && v->owned_detoast) {
-        Size len = VARSIZE_ANY(v->owned_detoast);
+
+    // Deep-copy pass-by-reference (varlena) datum data into TopMemoryContext
+    // so the copy survives SPI_finish() which destroys the caller's SPI context.
+    bool is_varlena = (v->typeid == BYTEAOID) || pgvalue_is_text_type(v->typeid);
+    if (is_varlena && !v->isnull) {
+        void *src = v->owned_detoast ? v->owned_detoast : DatumGetPointer(v->datum);
+        Size len = VARSIZE_ANY(src);
+        MemoryContext old = MemoryContextSwitchTo(TopMemoryContext);
         copy->owned_detoast = palloc(len);
-        memcpy(copy->owned_detoast, v->owned_detoast, len);
+        MemoryContextSwitchTo(old);
+        memcpy(copy->owned_detoast, src, len);
         copy->datum = PointerGetDatum(copy->owned_detoast);
         copy->detoasted = true;
     }
     if (v->cstring) {
+        MemoryContext old = MemoryContextSwitchTo(TopMemoryContext);
         copy->cstring = pstrdup(v->cstring);
+        MemoryContextSwitchTo(old);
         copy->owns_cstring = true;
     }
     return (void*)copy;
@@ -2744,7 +2876,7 @@ static int database_refresh_snapshot (void) {
         return DBRES_ERROR;
     }
     PG_END_TRY();
-    
+
     return DBRES_OK;
 }
 
@@ -2902,14 +3034,4 @@ uint64_t dbmem_size (void *ptr) {
     return 0;
 }
 
-// MARK: - CLOUDSYNC CALLBACK -
 
-static cloudsync_payload_apply_callback_t payload_apply_callback = NULL;
-
-void cloudsync_set_payload_apply_callback(void *db, cloudsync_payload_apply_callback_t callback) {
-    payload_apply_callback = callback;
-}
-
-cloudsync_payload_apply_callback_t cloudsync_get_payload_apply_callback(void *db) {
-    return payload_apply_callback;
-}

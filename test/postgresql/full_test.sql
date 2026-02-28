@@ -34,6 +34,9 @@
 \ir 24_nullable_types_roundtrip.sql
 \ir 25_boolean_type_issue.sql
 \ir 26_row_filter.sql
+\ir 27_rls_batch_merge.sql
+\ir 28_db_version_tracking.sql
+\ir 29_rls_multicol.sql
 
 -- 'Test summary'
 \echo '\nTest summary:'

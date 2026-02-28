@@ -112,31 +112,25 @@ Inside psql:
 8. Create RLS policies based on the user's description. Example for "user can only access their own rows":
    ```sql
    -- SELECT: User can see rows they own
-   -- Helper function fallback handles ON CONFLICT edge cases where user_id resolves to EXCLUDED row
    CREATE POLICY "select_own_rows" ON <table_name>
        FOR SELECT USING (
            auth.uid() = user_id
-           OR auth.uid() = <table_name>_get_owner(id)
        );
 
-   -- INSERT: Allow if user_id matches auth.uid() OR is default (cloudsync staging)
+   -- INSERT: Allow if user_id matches auth.uid()
    CREATE POLICY "insert_own_rows" ON <table_name>
        FOR INSERT WITH CHECK (
            auth.uid() = user_id
-           OR user_id = '00000000-0000-0000-0000-000000000000'::uuid
        );
 
-   -- UPDATE: Check ownership via explicit lookup, allow default for staging
+   -- UPDATE: Check ownership via explicit lookup
    CREATE POLICY "update_own_rows" ON <table_name>
        FOR UPDATE
        USING (
            auth.uid() = user_id
-           OR auth.uid() = <table_name>_get_owner(id)
-           OR user_id = '00000000-0000-0000-0000-000000000000'::uuid
        )
        WITH CHECK (
            auth.uid() = user_id
-           OR user_id = '00000000-0000-0000-0000-000000000000'::uuid
        );
 
    -- DELETE: User can only delete rows they own
@@ -147,9 +141,6 @@ Inside psql:
    ```
 9. Initialize cloudsync: `SELECT cloudsync_init('<table_name>');`
 10. Insert some initial test data (optional, can be done via SQLite clients)
-
-**Why these specific policies?**
-CloudSync uses `INSERT...ON CONFLICT DO UPDATE` for field-by-field synchronization. During conflict detection, PostgreSQL's RLS may compare `auth.uid()` against the EXCLUDED row's `user_id` (which has the default value) instead of the existing row's `user_id`. The helper function explicitly looks up the existing row's owner to work around this issue. See `docs/postgresql/RLS.md` for detailed explanation.
 
 ### Step 5: Get JWT Tokens for Two Users
 

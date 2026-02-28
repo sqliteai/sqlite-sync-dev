@@ -405,161 +405,6 @@ bool file_delete_internal (const char *path) {
 
 // MARK: -
 
-#ifndef UNITTEST_OMIT_RLS_VALIDATION
-typedef struct {
-    bool    in_savepoint;
-    bool    is_approved;
-    bool    last_is_delete;
-    char    *last_tbl;
-    void    *last_pk;
-    int64_t last_pk_len;
-    int64_t last_db_version;
-} unittest_payload_apply_rls_status;
-
-bool unittest_validate_changed_row(sqlite3 *db, cloudsync_context *data, char *tbl_name, void *pk, int64_t pklen) {
-    // verify row
-    bool ret = false;
-    bool vm_persistent;
-    sqlite3_stmt *vm = cloudsync_colvalue_stmt(data, tbl_name, &vm_persistent);
-    if (!vm) goto cleanup;
-    
-    // bind primary key values (the return code is the pk count)
-    int rc = pk_decode_prikey((char *)pk, (size_t)pklen, pk_decode_bind_callback, (void *)vm);
-    if (rc < 0) goto cleanup;
-    
-    // execute vm
-    rc = sqlite3_step(vm);
-    if (rc == SQLITE_DONE) {
-        rc = SQLITE_OK;
-    } else if (rc == SQLITE_ROW) {
-        rc = SQLITE_OK;
-        ret = true;
-    }
-    
-cleanup:
-    if (vm_persistent) sqlite3_reset(vm);
-    else sqlite3_finalize(vm);
-    
-    return ret;
-}
-
-int unittest_payload_apply_reset_transaction(sqlite3 *db, unittest_payload_apply_rls_status *s, bool create_new) {
-    int rc = SQLITE_OK;
-    
-    if (s->in_savepoint == true) {
-        if (s->is_approved) rc = sqlite3_exec(db, "RELEASE unittest_payload_apply_transaction", NULL, NULL, NULL);
-        else rc = sqlite3_exec(db, "ROLLBACK TO unittest_payload_apply_transaction; RELEASE unittest_payload_apply_transaction", NULL, NULL, NULL);
-        if (rc == SQLITE_OK) s->in_savepoint = false;
-    }
-    if (create_new) {
-        rc = sqlite3_exec(db, "SAVEPOINT unittest_payload_apply_transaction", NULL, NULL, NULL);
-        if (rc == SQLITE_OK) s->in_savepoint = true;
-    }
-    return rc;
-}
-
-bool unittest_payload_apply_rls_callback(void **xdata, cloudsync_pk_decode_bind_context *d, void *_db, void *_data, int step, int rc) {
-    sqlite3 *db = (sqlite3 *)_db;
-    cloudsync_context *data = (cloudsync_context *)_data;
-    
-    bool is_approved = false;
-    unittest_payload_apply_rls_status *s;
-    if (*xdata) {
-        s = (unittest_payload_apply_rls_status *)*xdata;
-    } else {
-        s = cloudsync_memory_zeroalloc(sizeof(unittest_payload_apply_rls_status));
-        s->is_approved = true;
-        *xdata = s;
-    }
-    
-    // extract context info
-    int64_t colname_len = 0;
-    char *colname = cloudsync_pk_context_colname(d, &colname_len);
-    
-    int64_t tbl_len = 0;
-    char *tbl = cloudsync_pk_context_tbl(d, &tbl_len);
-    
-    int64_t pk_len = 0;
-    void *pk = cloudsync_pk_context_pk(d, &pk_len);
-    
-    int64_t cl = cloudsync_pk_context_cl(d);
-    int64_t db_version = cloudsync_pk_context_dbversion(d);
-    
-    switch (step) {
-        case CLOUDSYNC_PAYLOAD_APPLY_WILL_APPLY: {
-            // if the tbl name or the prikey has changed, then verify if the row is valid
-            // must use strncmp because strings in xdata are not zero-terminated
-            bool tbl_changed = (s->last_tbl && (strlen(s->last_tbl) != (size_t)tbl_len || strncmp(s->last_tbl, tbl, (size_t)tbl_len) != 0));
-            bool pk_changed = (s->last_pk && pk && cloudsync_blob_compare(s->last_pk,  s->last_pk_len, pk, pk_len) != 0);
-            if (s->is_approved
-                && !s->last_is_delete
-                && (tbl_changed || pk_changed)) {
-                s->is_approved = unittest_validate_changed_row(db, data, s->last_tbl, s->last_pk, s->last_pk_len);
-            }
-            
-            s->last_is_delete = ((size_t)colname_len == strlen(CLOUDSYNC_TOMBSTONE_VALUE) &&
-                                 strncmp(colname, CLOUDSYNC_TOMBSTONE_VALUE, (size_t)colname_len) == 0
-                                 ) && cl % 2 == 0;
-            
-            // update the last_tbl value, if needed
-            if (!s->last_tbl ||
-                !tbl ||
-                (strlen(s->last_tbl) != (size_t)tbl_len) ||
-                strncmp(s->last_tbl, tbl, (size_t)tbl_len) != 0) {
-                if (s->last_tbl) cloudsync_memory_free(s->last_tbl);
-                if (tbl && tbl_len > 0) s->last_tbl = cloudsync_string_ndup(tbl, tbl_len);
-                else s->last_tbl = NULL;
-            }
-            
-            // update the last_prikey and len values, if needed
-            if (!s->last_pk || !pk || cloudsync_blob_compare(s->last_pk, s->last_pk_len, pk, pk_len) != 0) {
-                if (s->last_pk) cloudsync_memory_free(s->last_pk);
-                if (pk && pk_len > 0) {
-                    s->last_pk = cloudsync_memory_alloc(pk_len);
-                    memcpy(s->last_pk, pk, pk_len);
-                    s->last_pk_len = pk_len;
-                } else {
-                    s->last_pk = NULL;
-                    s->last_pk_len = 0;
-                }
-            }
-            
-            // commit the previous transaction, if any
-            // begin new transacion, if needed
-            if (s->last_db_version != db_version) {
-                rc = unittest_payload_apply_reset_transaction(db, s, true);
-                if (rc != SQLITE_OK) printf("unittest_payload_apply error in reset_transaction: (%d) %s\n", rc, sqlite3_errmsg(db));
-                
-                // reset local variables
-                s->last_db_version = db_version;
-                s->is_approved = true;
-            }
-            
-            is_approved = s->is_approved;
-            break;
-        }
-        case CLOUDSYNC_PAYLOAD_APPLY_DID_APPLY:
-            is_approved = s->is_approved;
-            break;
-        case CLOUDSYNC_PAYLOAD_APPLY_CLEANUP:
-            if (s->is_approved && !s->last_is_delete) s->is_approved = unittest_validate_changed_row(db, data, s->last_tbl, s->last_pk, s->last_pk_len);
-            rc = unittest_payload_apply_reset_transaction(db, s, false);
-            if (s->last_tbl) cloudsync_memory_free(s->last_tbl);
-            if (s->last_pk) {
-                cloudsync_memory_free(s->last_pk);
-                s->last_pk_len = 0;
-            }
-            is_approved = s->is_approved;
-
-            cloudsync_memory_free(s);
-            *xdata = NULL;
-            break;
-    }
-   
-    return is_approved;
-}
-#endif
-
 // MARK: -
 
 #ifndef CLOUDSYNC_OMIT_PRINT_RESULT
@@ -1932,8 +1777,7 @@ bool do_test_dbutils (void) {
     
     // manually load extension
     sqlite3_cloudsync_init(db, NULL, NULL);
-    cloudsync_set_payload_apply_callback(db, unittest_payload_apply_rls_callback);
-    
+
     // test context create and free
     data = cloudsync_context_create(db);
     if (!data) return false;
@@ -3881,8 +3725,7 @@ sqlite3 *do_create_database (void) {
     
     // manually load extension
     sqlite3_cloudsync_init(db, NULL, NULL);
-    cloudsync_set_payload_apply_callback(db, unittest_payload_apply_rls_callback);
-    
+
     return db;
 }
 
@@ -3894,7 +3737,7 @@ void do_build_database_path (char buf[256], int i, time_t timestamp, int ntest) 
     #endif
 }
 
-sqlite3 *do_create_database_file_v2 (int i, time_t timestamp, int ntest, bool set_payload_apply_callback) {
+sqlite3 *do_create_database_file_v2 (int i, time_t timestamp, int ntest) {
     sqlite3 *db = NULL;
 
     // open database in home dir
@@ -3906,18 +3749,17 @@ sqlite3 *do_create_database_file_v2 (int i, time_t timestamp, int ntest, bool se
         sqlite3_close(db);
         return NULL;
     }
-    
+
     sqlite3_exec(db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
-    
+
     // manually load extension
     sqlite3_cloudsync_init(db, NULL, NULL);
-    if (set_payload_apply_callback) cloudsync_set_payload_apply_callback(db, unittest_payload_apply_rls_callback);
 
     return db;
 }
 
 sqlite3 *do_create_database_file (int i, time_t timestamp, int ntest) {
-    return do_create_database_file_v2(i, timestamp, ntest, false);
+    return do_create_database_file_v2(i, timestamp, ntest);
 }
 
 bool do_test_merge (int nclients, bool print_result, bool cleanup_databases) {
@@ -3939,7 +3781,7 @@ bool do_test_merge (int nclients, bool print_result, bool cleanup_databases) {
     time_t timestamp = time(NULL);
     int saved_counter = test_counter;
     for (int i=0; i<nclients; ++i) {
-        db[i] = do_create_database_file_v2(i, timestamp, test_counter++, true);
+        db[i] = do_create_database_file_v2(i, timestamp, test_counter++);
         if (db[i] == false) return false;
         
         if (do_create_tables(table_mask, db[i]) == false) {
@@ -4323,7 +4165,7 @@ finalize:
     return result;
 }
 
-bool do_test_merge_check_db_version (int nclients, bool print_result, bool cleanup_databases, bool only_locals, bool set_payload_apply_callback) {
+bool do_test_merge_check_db_version (int nclients, bool print_result, bool cleanup_databases, bool only_locals) {
     sqlite3 *db[MAX_SIMULATED_CLIENTS] = {NULL};
     bool result = false;
     int rc = SQLITE_OK;
@@ -4341,7 +4183,7 @@ bool do_test_merge_check_db_version (int nclients, bool print_result, bool clean
     time_t timestamp = time(NULL);
     int saved_counter = test_counter++;
     for (int i=0; i<nclients; ++i) {
-        db[i] = do_create_database_file_v2(i, timestamp, saved_counter, set_payload_apply_callback);
+        db[i] = do_create_database_file_v2(i, timestamp, saved_counter);
         if (db[i] == false) return false;
         
         rc = sqlite3_exec(db[i], "CREATE TABLE todo (id TEXT PRIMARY KEY NOT NULL, title TEXT, status TEXT);", NULL, NULL, NULL);
@@ -4406,7 +4248,7 @@ finalize:
     return result;
 }
 
-bool do_test_merge_check_db_version_2 (int nclients, bool print_result, bool cleanup_databases, bool only_locals, bool set_payload_apply_callback) {
+bool do_test_merge_check_db_version_2 (int nclients, bool print_result, bool cleanup_databases, bool only_locals) {
     sqlite3 *db[MAX_SIMULATED_CLIENTS] = {NULL};
     bool result = false;
     int rc = SQLITE_OK;
@@ -4424,7 +4266,7 @@ bool do_test_merge_check_db_version_2 (int nclients, bool print_result, bool cle
     time_t timestamp = time(NULL);
     int saved_counter = test_counter++;
     for (int i=0; i<nclients; ++i) {
-        db[i] = do_create_database_file_v2(i, timestamp, saved_counter, set_payload_apply_callback);
+        db[i] = do_create_database_file_v2(i, timestamp, saved_counter);
         if (db[i] == false) return false;
         
         rc = sqlite3_exec(db[i], "CREATE TABLE todo (id TEXT PRIMARY KEY NOT NULL, title TEXT, status TEXT);", NULL, NULL, NULL);
@@ -6728,7 +6570,7 @@ bool do_test_merge_composite_pk_10_clients (int nclients, bool print_result, boo
     time_t timestamp = time(NULL);
     int saved_counter = test_counter++;
     for (int i = 0; i < nclients; ++i) {
-        db[i] = do_create_database_file_v2(i, timestamp, saved_counter, true);
+        db[i] = do_create_database_file_v2(i, timestamp, saved_counter);
         if (db[i] == false) return false;
         
         // Create simple table with composite primary key (id1, id2) and two non-pk columns (data1, data2)
@@ -6989,7 +6831,7 @@ bool do_test_prikey (int nclients, bool print_result, bool cleanup_databases) {
     time_t timestamp = time(NULL);
     int saved_counter = test_counter;
     for (int i=0; i<nclients; ++i) {
-        db[i] = do_create_database_file_v2(i, timestamp, test_counter++, true);
+        db[i] = do_create_database_file_v2(i, timestamp, test_counter++);
         if (db[i] == false) return false;
         
         const char *sql = "CREATE TABLE foo (a INTEGER PRIMARY KEY NOT NULL, b INTEGER);";
@@ -7763,6 +7605,229 @@ finalize:
     return result;
 }
 
+// Test that BEFORE triggers with RAISE(ABORT) simulate RLS denial:
+// per-PK savepoints isolate failures so allowed rows commit and denied rows roll back.
+bool do_test_rls_trigger_denial (int nclients, bool print_result, bool cleanup_databases, bool only_locals) {
+    sqlite3 *db[MAX_SIMULATED_CLIENTS] = {NULL};
+    bool result = false;
+    int rc = SQLITE_OK;
+
+    memset(db, 0, sizeof(sqlite3 *) * MAX_SIMULATED_CLIENTS);
+    if (nclients >= MAX_SIMULATED_CLIENTS) {
+        nclients = MAX_SIMULATED_CLIENTS;
+    } else if (nclients < 2) {
+        nclients = 2;
+    }
+
+    time_t timestamp = time(NULL);
+    int saved_counter = test_counter;
+    for (int i = 0; i < nclients; ++i) {
+        db[i] = do_create_database_file(i, timestamp, test_counter++);
+        if (db[i] == false) return false;
+
+        rc = sqlite3_exec(db[i], "CREATE TABLE tasks (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, priority INTEGER);", NULL, NULL, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+
+        rc = sqlite3_exec(db[i], "SELECT cloudsync_init('tasks');", NULL, NULL, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+    }
+
+    // --- Phase 1: baseline sync (no triggers) ---
+    rc = sqlite3_exec(db[0], "INSERT INTO tasks VALUES ('t1', 'user1', 'Task 1', 3);", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+    rc = sqlite3_exec(db[0], "INSERT INTO tasks VALUES ('t2', 'user2', 'Task 2', 5);", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+    rc = sqlite3_exec(db[0], "INSERT INTO tasks VALUES ('t3', 'user1', 'Task 3', 1);", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+
+    if (do_merge_using_payload(db[0], db[1], only_locals, true) == false) goto finalize;
+
+    // Verify: B has 3 rows
+    {
+        sqlite3_stmt *stmt = NULL;
+        rc = sqlite3_prepare_v2(db[1], "SELECT COUNT(*) FROM tasks;", -1, &stmt, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+        if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); goto finalize; }
+        int count = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+        if (count != 3) {
+            printf("Phase 1: expected 3 rows, got %d\n", count);
+            goto finalize;
+        }
+    }
+
+    // --- Phase 2: INSERT denial with triggers on B ---
+    rc = sqlite3_exec(db[1],
+        "CREATE TRIGGER rls_deny_insert BEFORE INSERT ON tasks "
+        "FOR EACH ROW WHEN NEW.user_id != 'user1' "
+        "BEGIN SELECT RAISE(ABORT, 'row violates RLS policy'); END;",
+        NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+
+    rc = sqlite3_exec(db[1],
+        "CREATE TRIGGER rls_deny_update BEFORE UPDATE ON tasks "
+        "FOR EACH ROW WHEN NEW.user_id != 'user1' "
+        "BEGIN SELECT RAISE(ABORT, 'row violates RLS policy'); END;",
+        NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+
+    rc = sqlite3_exec(db[0], "INSERT INTO tasks VALUES ('t4', 'user1', 'Task 4', 2);", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+    rc = sqlite3_exec(db[0], "INSERT INTO tasks VALUES ('t5', 'user2', 'Task 5', 7);", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+
+    // Merge with partial-failure tolerance: cloudsync_payload_decode returns error
+    // when any PK is denied, but allowed PKs are already committed via per-PK savepoints.
+    {
+        sqlite3_stmt *sel = NULL, *ins = NULL;
+        const char *sel_sql = only_locals
+            ? "SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) FROM cloudsync_changes WHERE site_id=cloudsync_siteid();"
+            : "SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) FROM cloudsync_changes;";
+        rc = sqlite3_prepare_v2(db[0], sel_sql, -1, &sel, NULL);
+        if (rc != SQLITE_OK) { sqlite3_finalize(sel); goto finalize; }
+        rc = sqlite3_prepare_v2(db[1], "SELECT cloudsync_payload_decode(?);", -1, &ins, NULL);
+        if (rc != SQLITE_OK) { sqlite3_finalize(sel); sqlite3_finalize(ins); goto finalize; }
+
+        while (sqlite3_step(sel) == SQLITE_ROW) {
+            sqlite3_value *v = sqlite3_column_value(sel, 0);
+            if (sqlite3_value_type(v) == SQLITE_NULL) continue;
+            sqlite3_bind_value(ins, 1, v);
+            sqlite3_step(ins); // partial failure expected — ignore rc
+            sqlite3_reset(ins);
+        }
+        sqlite3_finalize(sel);
+        sqlite3_finalize(ins);
+    }
+
+    // Verify: t4 present (user1 → allowed)
+    {
+        sqlite3_stmt *stmt = NULL;
+        rc = sqlite3_prepare_v2(db[1], "SELECT COUNT(*) FROM tasks WHERE id='t4';", -1, &stmt, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+        if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); goto finalize; }
+        int count = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+        if (count != 1) {
+            printf("Phase 2: t4 expected 1 row, got %d\n", count);
+            goto finalize;
+        }
+    }
+
+    // Verify: t5 absent (user2 → denied)
+    {
+        sqlite3_stmt *stmt = NULL;
+        rc = sqlite3_prepare_v2(db[1], "SELECT COUNT(*) FROM tasks WHERE id='t5';", -1, &stmt, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+        if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); goto finalize; }
+        int count = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+        if (count != 0) {
+            printf("Phase 2: t5 expected 0 rows, got %d\n", count);
+            goto finalize;
+        }
+    }
+
+    // Verify: total 4 rows on B (t1, t2, t3 from phase 1 + t4)
+    {
+        sqlite3_stmt *stmt = NULL;
+        rc = sqlite3_prepare_v2(db[1], "SELECT COUNT(*) FROM tasks;", -1, &stmt, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+        if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); goto finalize; }
+        int count = sqlite3_column_int(stmt, 0);
+        sqlite3_finalize(stmt);
+        if (count != 4) {
+            printf("Phase 2: expected 4 total rows, got %d\n", count);
+            goto finalize;
+        }
+    }
+
+    // --- Phase 3: UPDATE denial ---
+    rc = sqlite3_exec(db[0], "UPDATE tasks SET title='Task 1 Updated', priority=10 WHERE id='t1';", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+    rc = sqlite3_exec(db[0], "UPDATE tasks SET title='Task 2 Hacked', priority=99 WHERE id='t2';", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) goto finalize;
+
+    // Merge with partial-failure tolerance (same pattern as phase 2)
+    {
+        sqlite3_stmt *sel = NULL, *ins = NULL;
+        const char *sel_sql = only_locals
+            ? "SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) FROM cloudsync_changes WHERE site_id=cloudsync_siteid();"
+            : "SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) FROM cloudsync_changes;";
+        rc = sqlite3_prepare_v2(db[0], sel_sql, -1, &sel, NULL);
+        if (rc != SQLITE_OK) { sqlite3_finalize(sel); goto finalize; }
+        rc = sqlite3_prepare_v2(db[1], "SELECT cloudsync_payload_decode(?);", -1, &ins, NULL);
+        if (rc != SQLITE_OK) { sqlite3_finalize(sel); sqlite3_finalize(ins); goto finalize; }
+
+        while (sqlite3_step(sel) == SQLITE_ROW) {
+            sqlite3_value *v = sqlite3_column_value(sel, 0);
+            if (sqlite3_value_type(v) == SQLITE_NULL) continue;
+            sqlite3_bind_value(ins, 1, v);
+            sqlite3_step(ins); // partial failure expected — ignore rc
+            sqlite3_reset(ins);
+        }
+        sqlite3_finalize(sel);
+        sqlite3_finalize(ins);
+    }
+
+    // Verify: t1 updated (user1 → allowed)
+    {
+        sqlite3_stmt *stmt = NULL;
+        rc = sqlite3_prepare_v2(db[1], "SELECT title, priority FROM tasks WHERE id='t1';", -1, &stmt, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+        if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); goto finalize; }
+        const char *title = (const char *)sqlite3_column_text(stmt, 0);
+        int priority = sqlite3_column_int(stmt, 1);
+        bool ok = (strcmp(title, "Task 1 Updated") == 0) && (priority == 10);
+        sqlite3_finalize(stmt);
+        if (!ok) {
+            printf("Phase 3: t1 update not applied (title='%s', priority=%d)\n", title, priority);
+            goto finalize;
+        }
+    }
+
+    // Verify: t2 unchanged (user2 → denied)
+    {
+        sqlite3_stmt *stmt = NULL;
+        rc = sqlite3_prepare_v2(db[1], "SELECT title, priority FROM tasks WHERE id='t2';", -1, &stmt, NULL);
+        if (rc != SQLITE_OK) goto finalize;
+        if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); goto finalize; }
+        const char *title = (const char *)sqlite3_column_text(stmt, 0);
+        int priority = sqlite3_column_int(stmt, 1);
+        bool ok = (strcmp(title, "Task 2") == 0) && (priority == 5);
+        sqlite3_finalize(stmt);
+        if (!ok) {
+            printf("Phase 3: t2 should be unchanged (title='%s', priority=%d)\n", title, priority);
+            goto finalize;
+        }
+    }
+
+    result = true;
+    rc = SQLITE_OK;
+
+finalize:
+    for (int i = 0; i < nclients; ++i) {
+        if (rc != SQLITE_OK && db[i] && (sqlite3_errcode(db[i]) != SQLITE_OK))
+            printf("do_test_rls_trigger_denial error: %s\n", sqlite3_errmsg(db[i]));
+        if (db[i]) {
+            if (sqlite3_get_autocommit(db[i]) == 0) {
+                result = false;
+                printf("do_test_rls_trigger_denial error: db %d is in transaction\n", i);
+            }
+            int counter = close_db(db[i]);
+            if (counter > 0) {
+                result = false;
+                printf("do_test_rls_trigger_denial error: db %d has %d unterminated statements\n", i, counter);
+            }
+        }
+        if (cleanup_databases) {
+            char buf[256];
+            do_build_database_path(buf, i, timestamp, saved_counter++);
+            file_delete_internal(buf);
+        }
+    }
+    return result;
+}
+
 int test_report(const char *description, bool result){
     printf("%-30s %s\n", description, (result) ? "OK" : "FAILED");
     return result ? 0 : 1;
@@ -7773,14 +7838,13 @@ int main (int argc, const char * argv[]) {
     int result = 0;
     bool print_result = false;
     bool cleanup_databases = true;
-    
+
     // test in an in-memory database
     int rc = sqlite3_open(":memory:", &db);
     if (rc != SQLITE_OK) goto finalize;
     
     // manually load extension
     sqlite3_cloudsync_init(db, NULL, NULL);
-    cloudsync_set_payload_apply_callback(db, unittest_payload_apply_rls_callback);
 
     printf("Testing CloudSync version %s\n", CLOUDSYNC_VERSION);
     printf("=================================\n");
@@ -7848,10 +7912,8 @@ int main (int argc, const char * argv[]) {
     result += test_report("Merge Test 3:", do_test_merge_2(3, TEST_NOCOLS, print_result, cleanup_databases));
     result += test_report("Merge Test 4:", do_test_merge_4(2, print_result, cleanup_databases));
     result += test_report("Merge Test 5:", do_test_merge_5(2, print_result, cleanup_databases, false));
-    result += test_report("Merge Test db_version 1:", do_test_merge_check_db_version(2, print_result, cleanup_databases, true, false));
-    result += test_report("Merge Test db_version 1-cb:", do_test_merge_check_db_version(2, print_result, cleanup_databases, true, true));
-    result += test_report("Merge Test db_version 2:", do_test_merge_check_db_version_2(2, print_result, cleanup_databases, true, false));
-    result += test_report("Merge Test db_version 2-cb:", do_test_merge_check_db_version_2(2, print_result, cleanup_databases, true, true));
+    result += test_report("Merge Test db_version 1:", do_test_merge_check_db_version(2, print_result, cleanup_databases, true));
+    result += test_report("Merge Test db_version 2:", do_test_merge_check_db_version_2(2, print_result, cleanup_databases, true));
     result += test_report("Merge Test Insert Changes", do_test_insert_cloudsync_changes(print_result, cleanup_databases));
     result += test_report("Merge Alter Schema 1:", do_test_merge_alter_schema_1(2, print_result, cleanup_databases, false));
     result += test_report("Merge Alter Schema 2:", do_test_merge_alter_schema_2(2, print_result, cleanup_databases, false));
@@ -7869,8 +7931,9 @@ int main (int argc, const char * argv[]) {
     result += test_report("Merge Rollback Scenarios:", do_test_merge_rollback_scenarios(2, print_result, cleanup_databases));
     result += test_report("Merge Circular:", do_test_merge_circular(3, print_result, cleanup_databases));
     result += test_report("Merge Foreign Keys:", do_test_merge_foreign_keys(2, print_result, cleanup_databases));
-    // Expected failure: TRIGGERs are not fully supported by this extension.
+    // Expected failure: AFTER TRIGGERs are not fully supported by this extension.
     // result += test_report("Merge Triggers:", do_test_merge_triggers(2, print_result, cleanup_databases));
+    result += test_report("Merge RLS Trigger Denial:", do_test_rls_trigger_denial(2, print_result, cleanup_databases, true));
     result += test_report("Merge Index Consistency:", do_test_merge_index_consistency(2, print_result, cleanup_databases));
     result += test_report("Merge JSON Columns:", do_test_merge_json_columns(2, print_result, cleanup_databases));
     result += test_report("Merge Concurrent Attempts:", do_test_merge_concurrent_attempts(3, print_result, cleanup_databases));
