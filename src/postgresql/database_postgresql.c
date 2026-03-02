@@ -710,7 +710,6 @@ int database_select2_values (cloudsync_context *data, const char *sql, char **va
     // init values
     *value = NULL;
     *value2 = 0;
-    *value3 = 0;
     *len = 0;
 
     int rc = SPI_execute(sql, true, 0);
