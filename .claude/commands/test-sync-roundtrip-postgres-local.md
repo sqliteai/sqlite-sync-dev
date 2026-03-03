@@ -1,4 +1,4 @@
-# Sync Roundtrip Test
+# Sync Roundtrip Test with local Postgres database
 
 Execute a full roundtrip sync test between a local SQLite database and the local Supabase Docker PostgreSQL instance.
 
