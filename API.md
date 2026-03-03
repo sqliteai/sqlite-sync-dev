@@ -24,11 +24,11 @@ This document provides a reference for the SQLite functions provided by the `sql
   - [`cloudsync_network_cleanup()`](#cloudsync_network_cleanup)
   - [`cloudsync_network_set_token()`](#cloudsync_network_set_tokentoken)
   - [`cloudsync_network_set_apikey()`](#cloudsync_network_set_apikeyapikey)
-  - [`cloudsync_network_has_unsent_changes()`](#cloudsync_network_has_unsent_changes)
   - [`cloudsync_network_send_changes()`](#cloudsync_network_send_changes)
   - [`cloudsync_network_check_changes()`](#cloudsync_network_check_changes)
   - [`cloudsync_network_sync()`](#cloudsync_network_syncwait_ms-max_retries)
   - [`cloudsync_network_reset_sync_version()`](#cloudsync_network_reset_sync_version)
+  - [`cloudsync_network_has_unsent_changes()`](#cloudsync_network_has_unsent_changes)
   - [`cloudsync_network_logout()`](#cloudsync_network_logout)
 
 ---
@@ -357,34 +357,27 @@ SELECT cloudsync_network_set_apikey('your_api_key');
 
 ---
 
-### `cloudsync_network_has_unsent_changes()`
-
-**Description:** Checks if there are any local changes that have not yet been sent to the remote server.
-
-**Parameters:** None.
-
-**Returns:** 1 if there are unsent changes, 0 otherwise.
-
-**Example:**
-
-```sql
-SELECT cloudsync_network_has_unsent_changes();
-```
-
----
-
 ### `cloudsync_network_send_changes()`
 
 **Description:** Sends all unsent local changes to the remote server.
 
 **Parameters:** None.
 
-**Returns:** None.
+**Returns:** A JSON string with the sync status:
+
+```json
+{"status":"synced|syncing|out-of-sync|error", "localVersion": N, "serverVersion": N}
+```
+
+- `status`: The current sync state — `"synced"` (all changes confirmed), `"syncing"` (changes sent but not yet confirmed), `"out-of-sync"` (local changes pending or gaps detected), or `"error"`.
+- `localVersion`: The latest local database version.
+- `serverVersion`: The latest version confirmed by the server.
 
 **Example:**
 
 ```sql
 SELECT cloudsync_network_send_changes();
+-- '{"status":"synced","localVersion":5,"serverVersion":5}'
 ```
 
 ---
@@ -399,16 +392,22 @@ This function is designed to be called periodically to keep the local database i
 To force an update and wait for changes (with a timeout), use [`cloudsync_network_sync(wait_ms, max_retries)`].
 
 If the network is misconfigured or the remote server is unreachable, the function returns an error.
-On success, it returns `SQLITE_OK`, and the return value indicates how many changes were downloaded and applied.
 
 **Parameters:** None.
 
-**Returns:** The number of changes downloaded. Errors are reported via the SQLite return code.
+**Returns:** A JSON string with the number of changes applied:
+
+```json
+{"rowsReceived": N}
+```
+
+- `rowsReceived`: The number of rows downloaded and applied to the local database.
 
 **Example:**
 
 ```sql
 SELECT cloudsync_network_check_changes();
+-- '{"rowsReceived":3}'
 ```
 
 ---
@@ -425,13 +424,23 @@ SELECT cloudsync_network_check_changes();
 - `wait_ms` (INTEGER, optional): The time to wait in milliseconds between retries. Defaults to 100.
 - `max_retries` (INTEGER, optional): The maximum number of times to retry the synchronization. Defaults to 1.
 
-**Returns:** The number of changes downloaded. Errors are reported via the SQLite return code.
+**Returns:** A JSON string with the full sync result:
+
+```json
+{"status":"synced|syncing|out-of-sync|error", "localVersion": N, "serverVersion": N, "rowsReceived": N}
+```
+
+- `status`: The current sync state — `"synced"`, `"syncing"`, `"out-of-sync"`, or `"error"`.
+- `localVersion`: The latest local database version.
+- `serverVersion`: The latest version confirmed by the server.
+- `rowsReceived`: The number of rows downloaded and applied during the check phase.
 
 **Example:**
 
 ```sql
 -- Perform a single synchronization cycle
 SELECT cloudsync_network_sync();
+-- '{"status":"synced","localVersion":5,"serverVersion":5,"rowsReceived":3}'
 
 -- Perform a synchronization cycle with custom retry settings
 SELECT cloudsync_network_sync(500, 3);
@@ -455,9 +464,25 @@ SELECT cloudsync_network_reset_sync_version();
 
 ---
 
+### `cloudsync_network_has_unsent_changes()`
+
+**Description:** Checks if there are any local changes that have not yet been sent to the remote server.
+
+**Parameters:** None.
+
+**Returns:** 1 if there are unsent changes, 0 otherwise.
+
+**Example:**
+
+```sql
+SELECT cloudsync_network_has_unsent_changes();
+```
+
+---
+
 ### `cloudsync_network_logout()`
 
-**Description:** Logs out the current user and cleans up all local data from synchronized tables. This function deletes and then re-initializes synchronized tables, useful for switching users or resetting the local database. **Warning:** This function deletes all data from synchronized tables. Use with caution.
+**Description:** Logs out the current user and cleans up all local data from synchronized tables. This function deletes and then re-initializes synchronized tables, useful for switching users or resetting the local database. **Warning:** This function deletes all data from synchronized tables. Use with caution. Consider calling [`cloudsync_network_has_unsent_changes()`](#cloudsync_network_has_unsent_changes) before logout to check for unsent local changes and warn the user before data that has not been fully synchronized to the remote server is deleted.
 
 **Parameters:** None.
 
