@@ -872,7 +872,7 @@ typedef struct {
 static const char *network_compute_status(int64_t last_optimistic, int64_t last_confirmed,
                                            int gaps_size, int64_t local_version) {
     if (last_optimistic < 0 || last_confirmed < 0) return "error";
-    if (gaps_size > 0 || last_optimistic < local_version) return "retry";
+    if (gaps_size > 0 || last_optimistic < local_version) return "out-of-sync";
     if (last_optimistic == last_confirmed) return "synced";
     return "syncing";
 }
