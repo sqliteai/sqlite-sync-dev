@@ -517,6 +517,23 @@ static int64_t json_extract_int(const char *json, size_t json_len, const char *k
     return strtoll(json + val->start, NULL, 10);
 }
 
+static int json_extract_array_size(const char *json, size_t json_len, const char *key) {
+    if (!json || json_len == 0 || !key) return -1;
+
+    jsmn_parser parser;
+    jsmntok_t tokens[JSMN_MAX_TOKENS];
+    jsmn_init(&parser);
+    int ntokens = jsmn_parse(&parser, json, json_len, tokens, JSMN_MAX_TOKENS);
+    if (ntokens < 1 || tokens[0].type != JSMN_OBJECT) return -1;
+
+    int i = jsmn_find_key(json, tokens, ntokens, key);
+    if (i < 0 || i + 1 >= ntokens) return -1;
+
+    jsmntok_t *val = &tokens[i + 1];
+    if (val->type != JSMN_ARRAY) return -1;
+
+    return val->size;
+}
 
 int network_extract_query_param (const char *query, const char *key, char *output, size_t output_size) {
     if (!query || !key || !output || output_size == 0) {
@@ -843,6 +860,23 @@ void cloudsync_network_set_apikey (sqlite3_context *context, int argc, sqlite3_v
     (result) ? sqlite3_result_int(context, SQLITE_OK) : sqlite3_result_error_code(context, SQLITE_NOMEM);
 }
 
+// MARK: - Sync result
+
+typedef struct {
+    int64_t     server_version;   // lastOptimisticVersion
+    int64_t     local_version;    // new_db_version (max local)
+    const char  *status;          // computed status string
+    int         rows_received;    // rows from check
+} sync_result;
+
+static const char *network_compute_status(int64_t last_optimistic, int64_t last_confirmed,
+                                           int gaps_size, int64_t local_version) {
+    if (last_optimistic < 0 || last_confirmed < 0) return "error";
+    if (gaps_size > 0 || last_optimistic < local_version) return "retry";
+    if (last_optimistic == last_confirmed) return "synced";
+    return "syncing";
+}
+
 // MARK: -
 
 void cloudsync_network_has_unsent_changes (sqlite3_context *context, int argc, sqlite3_value **argv) {
@@ -882,7 +916,7 @@ void cloudsync_network_has_unsent_changes (sqlite3_context *context, int argc, s
     sqlite3_result_int(context, (last_optimistic_version >= 0 && last_optimistic_version < last_local_change));
 }
 
-int cloudsync_network_send_changes_internal (sqlite3_context *context, int argc, sqlite3_value **argv) {
+int cloudsync_network_send_changes_internal (sqlite3_context *context, int argc, sqlite3_value **argv, sync_result *out) {
     DEBUG_FUNCTION("cloudsync_network_send_changes");
     
     // retrieve global context
@@ -943,43 +977,63 @@ int cloudsync_network_send_changes_internal (sqlite3_context *context, int argc,
         res = network_receive_buffer(netdata, netdata->apply_endpoint, netdata->authentication, true, true, json_payload, CLOUDSYNC_HEADER_SQLITECLOUD);
     } else {
         // there is no data to send, just check the status to update the db_version value in settings and to reply the status
+        new_db_version = db_version;
         res = network_receive_buffer(netdata, netdata->status_endpoint, netdata->authentication, true, false, NULL, CLOUDSYNC_HEADER_SQLITECLOUD);
     }
 
     int64_t last_optimistic_version = -1;
+    int64_t last_confirmed_version = -1;
+    int gaps_size = -1;
 
     if (res.code == CLOUDSYNC_NETWORK_BUFFER && res.buffer) {
         last_optimistic_version = json_extract_int(res.buffer, res.blen, "lastOptimisticVersion", -1);
+        last_confirmed_version = json_extract_int(res.buffer, res.blen, "lastConfirmedVersion", -1);
+        gaps_size = json_extract_array_size(res.buffer, res.blen, "gaps");
+        if (gaps_size < 0) gaps_size = 0;
     } else if (res.code != CLOUDSYNC_NETWORK_OK) {
         network_result_to_sqlite_error(context, res, "cloudsync_network_send_changes unable to notify BLOB upload to remote host.");
         network_result_cleanup(&res);
         return SQLITE_ERROR;
     }
-    
+
     // update db_version in settings
     char buf[256];
-    if (last_optimistic_version > 0) {
+    if (last_optimistic_version >= 0) {
         if (last_optimistic_version != db_version) {
             snprintf(buf, sizeof(buf), "%" PRId64, last_optimistic_version);
             dbutils_settings_set_key_value(data, CLOUDSYNC_KEY_SEND_DBVERSION, buf);
-        } 
+        }
     } else if (new_db_version != db_version) {
         snprintf(buf, sizeof(buf), "%" PRId64, new_db_version);
         dbutils_settings_set_key_value(data, CLOUDSYNC_KEY_SEND_DBVERSION, buf);
     }
-    
-    network_set_sqlite_result(context, &res);
+
+    // populate sync result
+    if (out) {
+        out->server_version = last_optimistic_version;
+        out->local_version = new_db_version;
+        out->status = network_compute_status(last_optimistic_version, last_confirmed_version, gaps_size, new_db_version);
+    }
+
     network_result_cleanup(&res);
     return SQLITE_OK;
 }
 
 void cloudsync_network_send_changes (sqlite3_context *context, int argc, sqlite3_value **argv) {
     DEBUG_FUNCTION("cloudsync_network_send_changes");
-    
-    cloudsync_network_send_changes_internal(context, argc, argv);
+
+    sync_result sr = {-1, 0, NULL, 0};
+    int rc = cloudsync_network_send_changes_internal(context, argc, argv, &sr);
+    if (rc != SQLITE_OK) return;
+
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "{\"status\":\"%s\",\"localVersion\":%" PRId64 ",\"serverVersion\":%" PRId64 "}",
+        sr.status ? sr.status : "error", sr.local_version, sr.server_version);
+    sqlite3_result_text(context, buf, -1, SQLITE_TRANSIENT);
 }
 
-int cloudsync_network_check_internal(sqlite3_context *context, int *pnrows) {
+int cloudsync_network_check_internal(sqlite3_context *context, int *pnrows, sync_result *out) {
     cloudsync_context *data = (cloudsync_context *)sqlite3_user_data(context);
     network_data *netdata = (network_data *)cloudsync_auxdata(data);
     if (!netdata) {sqlite3_result_error(context, "Unable to retrieve CloudSync network context.", -1); return -1;}
@@ -1009,25 +1063,32 @@ int cloudsync_network_check_internal(sqlite3_context *context, int *pnrows) {
         rc = network_set_sqlite_result(context, &result);
     }
 
+    if (out && pnrows) out->rows_received = *pnrows;
+
     network_result_cleanup(&result);
     return rc;
 }
 
 void cloudsync_network_sync (sqlite3_context *context, int wait_ms, int max_retries) {
-    int rc = cloudsync_network_send_changes_internal(context, 0, NULL);
+    sync_result sr = {-1, 0, NULL, 0};
+    int rc = cloudsync_network_send_changes_internal(context, 0, NULL, &sr);
     if (rc != SQLITE_OK) return;
-    
+
     int ntries = 0;
     int nrows = 0;
     while (ntries < max_retries) {
         if (ntries > 0) sqlite3_sleep(wait_ms);
-        rc = cloudsync_network_check_internal(context, &nrows);
+        rc = cloudsync_network_check_internal(context, &nrows, &sr);
         if (rc == SQLITE_OK && nrows > 0) break;
         ntries++;
     }
-    
-    sqlite3_result_error_code(context, (nrows == -1) ? SQLITE_ERROR : SQLITE_OK);
-    if (nrows >= 0) sqlite3_result_int(context, nrows);
+    if (rc != SQLITE_OK) return;
+
+    char buf[256];
+    snprintf(buf, sizeof(buf),
+        "{\"status\":\"%s\",\"localVersion\":%" PRId64 ",\"serverVersion\":%" PRId64 ",\"rowsReceived\":%d}",
+        sr.status ? sr.status : "error", sr.local_version, sr.server_version, nrows);
+    sqlite3_result_text(context, buf, -1, SQLITE_TRANSIENT);
 }
 
 void cloudsync_network_sync0 (sqlite3_context *context, int argc, sqlite3_value **argv) {
@@ -1049,12 +1110,14 @@ void cloudsync_network_sync2 (sqlite3_context *context, int argc, sqlite3_value 
 
 void cloudsync_network_check_changes (sqlite3_context *context, int argc, sqlite3_value **argv) {
     DEBUG_FUNCTION("cloudsync_network_check_changes");
-    
+
     int nrows = 0;
-    int rc = cloudsync_network_check_internal(context, &nrows);
-    
-    // returns number of applied rows
-    if (rc == SQLITE_OK) sqlite3_result_int(context, nrows);
+    int rc = cloudsync_network_check_internal(context, &nrows, NULL);
+    if (rc != SQLITE_OK) return;
+
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"rowsReceived\":%d}", nrows);
+    sqlite3_result_text(context, buf, -1, SQLITE_TRANSIENT);
 }
 
 void cloudsync_network_reset_sync_version (sqlite3_context *context, int argc, sqlite3_value **argv) {
