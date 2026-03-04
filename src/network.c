@@ -956,8 +956,18 @@ int cloudsync_network_send_changes_internal (sqlite3_context *context, int argc,
         return rc;
     }
     
+    // Case 1: empty local db — no payload and no server state, skip network entirely
+    if ((blob == NULL || blob_size == 0) && db_version == 0) {
+        if (out) {
+            out->server_version = 0;
+            out->local_version = 0;
+            out->status = network_compute_status(0, 0, 0, 0);
+        }
+        return SQLITE_OK;
+    }
+
     NETWORK_RESULT res;
-    if (blob != NULL || blob_size > 0) {
+    if (blob != NULL && blob_size > 0) {
         // there is data to send
         res = network_receive_buffer(netdata, netdata->upload_endpoint, netdata->authentication, true, false, NULL, CLOUDSYNC_HEADER_SQLITECLOUD);
         if (res.code != CLOUDSYNC_NETWORK_BUFFER) {
