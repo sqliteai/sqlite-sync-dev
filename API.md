@@ -363,21 +363,21 @@ SELECT cloudsync_network_set_apikey('your_api_key');
 
 **Parameters:** None.
 
-**Returns:** A JSON string with the sync status:
+**Returns:** A JSON string with the send result:
 
 ```json
-{"status":"synced|syncing|out-of-sync|error", "localVersion": N, "serverVersion": N}
+{"send": {"status": "synced|syncing|out-of-sync|error", "localVersion": N, "serverVersion": N}}
 ```
 
-- `status`: The current sync state — `"synced"` (all changes confirmed), `"syncing"` (changes sent but not yet confirmed), `"out-of-sync"` (local changes pending or gaps detected), or `"error"`.
-- `localVersion`: The latest local database version.
-- `serverVersion`: The latest version confirmed by the server.
+- `send.status`: The current sync state — `"synced"` (all changes confirmed), `"syncing"` (changes sent but not yet confirmed), `"out-of-sync"` (local changes pending or gaps detected), or `"error"`.
+- `send.localVersion`: The latest local database version.
+- `send.serverVersion`: The latest version confirmed by the server.
 
 **Example:**
 
 ```sql
 SELECT cloudsync_network_send_changes();
--- '{"status":"synced","localVersion":5,"serverVersion":5}'
+-- '{"send":{"status":"synced","localVersion":5,"serverVersion":5}}'
 ```
 
 ---
@@ -395,19 +395,20 @@ If the network is misconfigured or the remote server is unreachable, the functio
 
 **Parameters:** None.
 
-**Returns:** A JSON string with the number of changes applied:
+**Returns:** A JSON string with the receive result:
 
 ```json
-{"rowsReceived": N}
+{"receive": {"rows": N, "tables": ["table1", "table2"]}}
 ```
 
-- `rowsReceived`: The number of rows downloaded and applied to the local database.
+- `receive.rows`: The number of rows received and applied to the local database.
+- `receive.tables`: An array of table names that received changes. Empty (`[]`) if no changes were applied.
 
 **Example:**
 
 ```sql
 SELECT cloudsync_network_check_changes();
--- '{"rowsReceived":3}'
+-- '{"receive":{"rows":3,"tables":["tasks"]}}'
 ```
 
 ---
@@ -424,23 +425,27 @@ SELECT cloudsync_network_check_changes();
 - `wait_ms` (INTEGER, optional): The time to wait in milliseconds between retries. Defaults to 100.
 - `max_retries` (INTEGER, optional): The maximum number of times to retry the synchronization. Defaults to 1.
 
-**Returns:** A JSON string with the full sync result:
+**Returns:** A JSON string with the full sync result, combining send and receive:
 
 ```json
-{"status":"synced|syncing|out-of-sync|error", "localVersion": N, "serverVersion": N, "rowsReceived": N}
+{
+  "send": {"status": "synced|syncing|out-of-sync|error", "localVersion": N, "serverVersion": N},
+  "receive": {"rows": N, "tables": ["table1", "table2"]}
+}
 ```
 
-- `status`: The current sync state — `"synced"`, `"syncing"`, `"out-of-sync"`, or `"error"`.
-- `localVersion`: The latest local database version.
-- `serverVersion`: The latest version confirmed by the server.
-- `rowsReceived`: The number of rows downloaded and applied during the check phase.
+- `send.status`: The current sync state — `"synced"`, `"syncing"`, `"out-of-sync"`, or `"error"`.
+- `send.localVersion`: The latest local database version.
+- `send.serverVersion`: The latest version confirmed by the server.
+- `receive.rows`: The number of rows received and applied during the check phase.
+- `receive.tables`: An array of table names that received changes. Empty (`[]`) if no changes were applied.
 
 **Example:**
 
 ```sql
 -- Perform a single synchronization cycle
 SELECT cloudsync_network_sync();
--- '{"status":"synced","localVersion":5,"serverVersion":5,"rowsReceived":3}'
+-- '{"send":{"status":"synced","localVersion":5,"serverVersion":5},"receive":{"rows":3,"tables":["tasks"]}}'
 
 -- Perform a synchronization cycle with custom retry settings
 SELECT cloudsync_network_sync(500, 3);

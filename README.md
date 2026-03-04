@@ -296,7 +296,7 @@ SELECT cloudsync_network_set_apikey('your-api-key-here');
 -- and, if a package with changes is ready to be downloaded, applies them to the local database
 SELECT cloudsync_network_sync();
 -- Returns a JSON string with sync status, e.g.:
--- '{"status":"synced","localVersion":5,"serverVersion":5,"rowsReceived":3}'
+-- '{"send":{"status":"synced","localVersion":5,"serverVersion":5},"receive":{"rows":3,"tables":["my_data"]}}'
 -- Keep calling periodically. In production applications, you would typically
 -- call this periodically rather than manually (e.g., every few seconds)
 SELECT cloudsync_network_sync();
@@ -325,7 +325,7 @@ SELECT cloudsync_network_set_apikey('your-api-key-here');
 
 -- Sync to get data from the first device
 SELECT cloudsync_network_sync();
--- Repeat — check rowsReceived in the JSON result to see if data was received
+-- Repeat — check receive.rows in the JSON result to see if data was received
 SELECT cloudsync_network_sync();
 
 -- View synchronized data

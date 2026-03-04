@@ -860,6 +860,25 @@ void cloudsync_network_set_apikey (sqlite3_context *context, int argc, sqlite3_v
     (result) ? sqlite3_result_int(context, SQLITE_OK) : sqlite3_result_error_code(context, SQLITE_NOMEM);
 }
 
+// Returns a malloc'd JSON array string like '["tasks","users"]', or NULL on error/no results.
+// Caller must free with cloudsync_memory_free.
+static char *network_get_affected_tables(sqlite3 *db, int64_t since_db_version) {
+    sqlite3_stmt *stmt = NULL;
+    int rc = sqlite3_prepare_v2(db,
+        "SELECT json_group_array(DISTINCT tbl) FROM cloudsync_changes WHERE db_version > ?",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return NULL;
+    sqlite3_bind_int64(stmt, 1, since_db_version);
+
+    char *result = NULL;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char *json = (const char *)sqlite3_column_text(stmt, 0);
+        if (json) result = cloudsync_string_dup(json);
+    }
+    sqlite3_finalize(stmt);
+    return result;
+}
+
 // MARK: - Sync result
 
 typedef struct {
@@ -867,6 +886,7 @@ typedef struct {
     int64_t     local_version;    // new_db_version (max local)
     const char  *status;          // computed status string
     int         rows_received;    // rows from check
+    char        *tables_json;     // JSON array of affected table names, caller must cloudsync_memory_free
 } sync_result;
 
 static const char *network_compute_status(int64_t last_optimistic, int64_t last_confirmed,
@@ -1022,13 +1042,13 @@ int cloudsync_network_send_changes_internal (sqlite3_context *context, int argc,
 void cloudsync_network_send_changes (sqlite3_context *context, int argc, sqlite3_value **argv) {
     DEBUG_FUNCTION("cloudsync_network_send_changes");
 
-    sync_result sr = {-1, 0, NULL, 0};
+    sync_result sr = {-1, 0, NULL, 0, NULL};
     int rc = cloudsync_network_send_changes_internal(context, argc, argv, &sr);
     if (rc != SQLITE_OK) return;
 
     char buf[256];
     snprintf(buf, sizeof(buf),
-        "{\"status\":\"%s\",\"localVersion\":%" PRId64 ",\"serverVersion\":%" PRId64 "}",
+        "{\"send\":{\"status\":\"%s\",\"localVersion\":%" PRId64 ",\"serverVersion\":%" PRId64 "}}",
         sr.status ? sr.status : "error", sr.local_version, sr.server_version);
     sqlite3_result_text(context, buf, -1, SQLITE_TRANSIENT);
 }
@@ -1043,6 +1063,9 @@ int cloudsync_network_check_internal(sqlite3_context *context, int *pnrows, sync
 
     int seq = dbutils_settings_get_int_value(data, CLOUDSYNC_KEY_CHECK_SEQ);
     if (seq<0) {sqlite3_result_error(context, "Unable to retrieve seq.", -1); return -1;}
+
+    // Capture local db_version before download so we can query cloudsync_changes afterwards
+    int64_t prev_dbv = cloudsync_dbversion(data);
 
     char json_payload[2024];
     snprintf(json_payload, sizeof(json_payload), "{\"dbVersion\":%lld, \"seq\":%d}", (long long)db_version, seq);
@@ -1065,12 +1088,18 @@ int cloudsync_network_check_internal(sqlite3_context *context, int *pnrows, sync
 
     if (out && pnrows) out->rows_received = *pnrows;
 
+    // Query cloudsync_changes for affected tables after successful download
+    if (out && rc == SQLITE_OK && pnrows && *pnrows > 0) {
+        sqlite3 *db = (sqlite3 *)cloudsync_db(data);
+        out->tables_json = network_get_affected_tables(db, prev_dbv);
+    }
+
     network_result_cleanup(&result);
     return rc;
 }
 
 void cloudsync_network_sync (sqlite3_context *context, int wait_ms, int max_retries) {
-    sync_result sr = {-1, 0, NULL, 0};
+    sync_result sr = {-1, 0, NULL, 0, NULL};
     int rc = cloudsync_network_send_changes_internal(context, 0, NULL, &sr);
     if (rc != SQLITE_OK) return;
 
@@ -1078,17 +1107,20 @@ void cloudsync_network_sync (sqlite3_context *context, int wait_ms, int max_retr
     int nrows = 0;
     while (ntries < max_retries) {
         if (ntries > 0) sqlite3_sleep(wait_ms);
+        if (sr.tables_json) { cloudsync_memory_free(sr.tables_json); sr.tables_json = NULL; }
         rc = cloudsync_network_check_internal(context, &nrows, &sr);
         if (rc == SQLITE_OK && nrows > 0) break;
         ntries++;
     }
-    if (rc != SQLITE_OK) return;
+    if (rc != SQLITE_OK) { if (sr.tables_json) cloudsync_memory_free(sr.tables_json); return; }
 
-    char buf[256];
-    snprintf(buf, sizeof(buf),
-        "{\"status\":\"%s\",\"localVersion\":%" PRId64 ",\"serverVersion\":%" PRId64 ",\"rowsReceived\":%d}",
-        sr.status ? sr.status : "error", sr.local_version, sr.server_version, nrows);
-    sqlite3_result_text(context, buf, -1, SQLITE_TRANSIENT);
+    const char *tables = sr.tables_json ? sr.tables_json : "[]";
+    char *buf = cloudsync_memory_mprintf(
+        "{\"send\":{\"status\":\"%s\",\"localVersion\":%" PRId64 ",\"serverVersion\":%" PRId64 "},"
+        "\"receive\":{\"rows\":%d,\"tables\":%s}}",
+        sr.status ? sr.status : "error", sr.local_version, sr.server_version, nrows, tables);
+    sqlite3_result_text(context, buf, -1, cloudsync_memory_free);
+    if (sr.tables_json) cloudsync_memory_free(sr.tables_json);
 }
 
 void cloudsync_network_sync0 (sqlite3_context *context, int argc, sqlite3_value **argv) {
@@ -1111,13 +1143,15 @@ void cloudsync_network_sync2 (sqlite3_context *context, int argc, sqlite3_value 
 void cloudsync_network_check_changes (sqlite3_context *context, int argc, sqlite3_value **argv) {
     DEBUG_FUNCTION("cloudsync_network_check_changes");
 
+    sync_result sr = {-1, 0, NULL, 0, NULL};
     int nrows = 0;
-    int rc = cloudsync_network_check_internal(context, &nrows, NULL);
-    if (rc != SQLITE_OK) return;
+    int rc = cloudsync_network_check_internal(context, &nrows, &sr);
+    if (rc != SQLITE_OK) { if (sr.tables_json) cloudsync_memory_free(sr.tables_json); return; }
 
-    char buf[128];
-    snprintf(buf, sizeof(buf), "{\"rowsReceived\":%d}", nrows);
-    sqlite3_result_text(context, buf, -1, SQLITE_TRANSIENT);
+    const char *tables = sr.tables_json ? sr.tables_json : "[]";
+    char *buf = cloudsync_memory_mprintf("{\"receive\":{\"rows\":%d,\"tables\":%s}}", nrows, tables);
+    sqlite3_result_text(context, buf, -1, cloudsync_memory_free);
+    if (sr.tables_json) cloudsync_memory_free(sr.tables_json);
 }
 
 void cloudsync_network_reset_sync_version (sqlite3_context *context, int argc, sqlite3_value **argv) {

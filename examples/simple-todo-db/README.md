@@ -168,7 +168,7 @@ SELECT cloudsync_network_set_apikey('your-api-key-here');
 
 -- Pull data from Device A - repeat until data is received
 SELECT cloudsync_network_sync();
--- Check the "rowsReceived" field in the JSON result to see if data was received
+-- Check "receive.rows" in the JSON result to see if data was received
 SELECT cloudsync_network_sync();
 
 -- Verify data was synced
@@ -199,7 +199,7 @@ SELECT cloudsync_network_sync();
 ```sql
 -- Get updates from Device B - repeat until data is received
 SELECT cloudsync_network_sync();
--- Check the "rowsReceived" field in the JSON result to see if data was received
+-- Check "receive.rows" in the JSON result to see if data was received
 SELECT cloudsync_network_sync();
 
 -- View all tasks (should now include Device B's additions)
@@ -232,7 +232,7 @@ SELECT cloudsync_network_has_unsent_changes();
 -- When network returns, sync automatically resolves conflicts
 -- Repeat until all changes are synchronized
 SELECT cloudsync_network_sync();
--- Check the "rowsReceived" field in the JSON result to see if data was received/sent
+-- Check "receive.rows" and "send.status" in the JSON result
 SELECT cloudsync_network_sync();
 ```
 

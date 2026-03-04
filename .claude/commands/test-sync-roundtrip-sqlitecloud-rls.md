@@ -245,7 +245,7 @@ SELECT cloudsync_network_send_changes();
 
 -- Check for changes from server (repeat with 2-3 second delays)
 SELECT cloudsync_network_check_changes();
--- Repeat check_changes 3-5 times with delays until it returns 0 or stabilizes
+-- Repeat check_changes 3-5 times with delays until it returns more than 0 received rows or stabilizes
 ```
 
 **Recommended sync order:**
