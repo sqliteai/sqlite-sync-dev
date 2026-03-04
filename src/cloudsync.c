@@ -2872,21 +2872,18 @@ cleanup:
 
 // MARK: - Payload load/store -
 
-int cloudsync_payload_get (cloudsync_context *data, char **blob, int *blob_size, int *db_version, int *seq, int64_t *new_db_version, int64_t *new_seq) {
+int cloudsync_payload_get (cloudsync_context *data, char **blob, int *blob_size, int *db_version, int64_t *new_db_version) {
     // retrieve current db_version and seq
     *db_version = dbutils_settings_get_int_value(data, CLOUDSYNC_KEY_SEND_DBVERSION);
     if (*db_version < 0) return DBRES_ERROR;
-
-    *seq = dbutils_settings_get_int_value(data, CLOUDSYNC_KEY_SEND_SEQ);
-    if (*seq < 0) return DBRES_ERROR;
     
     // retrieve BLOB
     char sql[1024];
     snprintf(sql, sizeof(sql), "WITH max_db_version AS (SELECT MAX(db_version) AS max_db_version FROM cloudsync_changes WHERE site_id=cloudsync_siteid()) "
-                               "SELECT * FROM (SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) AS payload, max_db_version AS max_db_version, MAX(IIF(db_version = max_db_version, seq, 0)) FROM cloudsync_changes, max_db_version WHERE site_id=cloudsync_siteid() AND (db_version>%d OR (db_version=%d AND seq>%d))) WHERE payload IS NOT NULL", *db_version, *db_version, *seq);
+                               "SELECT * FROM (SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) AS payload, max_db_version AS max_db_version FROM cloudsync_changes, max_db_version WHERE site_id=cloudsync_siteid() AND db_version>%d) WHERE payload IS NOT NULL", *db_version);
     
     int64_t len = 0;
-    int rc = database_select_blob_2int(data, sql, blob, &len, new_db_version, new_seq);
+    int rc = database_select_blob_int(data, sql, blob, &len, new_db_version);
     *blob_size = (int)len;
     if (rc != DBRES_OK) return rc;
     
@@ -2904,12 +2901,11 @@ int cloudsync_payload_save (cloudsync_context *data, const char *payload_path, i
     
     // retrieve payload
     char *blob = NULL;
-    int blob_size = 0, db_version = 0, seq = 0;
-    int64_t new_db_version = 0, new_seq = 0;
-    int rc = cloudsync_payload_get(data, &blob, &blob_size, &db_version, &seq, &new_db_version, &new_seq);
+    int blob_size = 0, db_version = 0;
+    int64_t new_db_version = 0;
+    int rc = cloudsync_payload_get(data, &blob, &blob_size, &db_version, &new_db_version);
     if (rc != DBRES_OK) {
         if (db_version < 0) return cloudsync_set_error(data, "Unable to retrieve db_version", rc);
-        else if (seq < 0) return cloudsync_set_error(data, "Unable to retrieve seq", rc);
         return cloudsync_set_error(data, "Unable to retrieve changes in cloudsync_payload_save", rc);
     }
     
@@ -2924,18 +2920,6 @@ int cloudsync_payload_save (cloudsync_context *data, const char *payload_path, i
     cloudsync_memory_free(blob);
     if (res == false) {
         return cloudsync_set_error(data, "Unable to write payload to file path", DBRES_IOERR);
-    }
-    
-    // TODO: dbutils_settings_set_key_value remove context and return error here (in case of error)
-    // update db_version and seq
-    char buf[256];
-    if (new_db_version != db_version) {
-        snprintf(buf, sizeof(buf), "%" PRId64, new_db_version);
-        dbutils_settings_set_key_value(data, CLOUDSYNC_KEY_SEND_DBVERSION, buf);
-    }
-    if (new_seq != seq) {
-        snprintf(buf, sizeof(buf), "%" PRId64, new_seq);
-        dbutils_settings_set_key_value(data, CLOUDSYNC_KEY_SEND_SEQ, buf);
     }
     
     // returns blob size

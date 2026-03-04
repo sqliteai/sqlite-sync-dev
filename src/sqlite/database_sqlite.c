@@ -440,21 +440,20 @@ cleanup_select:
     return rc;
 }
 
-static int database_select3_values (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2, int64_t *value3) {
+static int database_select2_values (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2) {
     sqlite3 *db = (sqlite3 *)cloudsync_db(data);
     
     // init values and sanity check expected_type
     *value = NULL;
     *value2 = 0;
-    *value3 = 0;
     *len = 0;
     
     sqlite3_stmt *vm = NULL;
     int rc = sqlite3_prepare_v2((sqlite3 *)db, sql, -1, &vm, NULL);
     if (rc != SQLITE_OK) goto cleanup_select;
     
-    // ensure at least one column
-    if (sqlite3_column_count(vm) < 3) {rc = SQLITE_MISMATCH; goto cleanup_select;}
+    // ensure column count
+    if (sqlite3_column_count(vm) < 2) {rc = SQLITE_MISMATCH; goto cleanup_select;}
     
     rc = sqlite3_step(vm);
     if (rc == SQLITE_DONE) {rc = SQLITE_OK; goto cleanup_select;} // no rows OK
@@ -463,7 +462,6 @@ static int database_select3_values (cloudsync_context *data, const char *sql, ch
     // sanity check column types
     if (sqlite3_column_type(vm, 0) != SQLITE_BLOB) {rc = SQLITE_MISMATCH; goto cleanup_select;}
     if (sqlite3_column_type(vm, 1) != SQLITE_INTEGER) {rc = SQLITE_MISMATCH; goto cleanup_select;}
-    if (sqlite3_column_type(vm, 2) != SQLITE_INTEGER) {rc = SQLITE_MISMATCH; goto cleanup_select;}
     
     // 1st column is BLOB
     const void *blob = (const void *)sqlite3_column_blob(vm, 0);
@@ -477,9 +475,8 @@ static int database_select3_values (cloudsync_context *data, const char *sql, ch
         *len = blob_len;
     }
     
-    // 2nd and 3rd columns are INTEGERS
+    // 2nd column is INTEGER
     *value2 = (int64_t)sqlite3_column_int64(vm, 1);
-    *value3 = (int64_t)sqlite3_column_int64(vm, 2);
     
     rc = SQLITE_OK;
     
@@ -574,8 +571,8 @@ int database_select_blob (cloudsync_context *data, const char *sql, char **value
     return database_select1_value(data, sql, value, len, DBTYPE_BLOB);
 }
 
-int database_select_blob_2int (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2, int64_t *value3) {
-    return database_select3_values(data, sql, value, len, value2, value3);
+int database_select_blob_int (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2) {
+    return database_select2_values(data, sql, value, len, value2);
 }
 
 const char *database_errmsg (cloudsync_context *data) {

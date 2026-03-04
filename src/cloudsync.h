@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#define CLOUDSYNC_VERSION                       "0.9.112"
+#define CLOUDSYNC_VERSION                       "0.9.113"
 #define CLOUDSYNC_MAX_TABLENAME_LEN             512
 
 #define CLOUDSYNC_VALUE_NOTSET                  -1
@@ -83,7 +83,7 @@ int    cloudsync_payload_encode_step (cloudsync_payload_context *payload, clouds
 int    cloudsync_payload_encode_final (cloudsync_payload_context *payload, cloudsync_context *data);
 char  *cloudsync_payload_blob (cloudsync_payload_context *payload, int64_t *blob_size, int64_t *nrows);
 size_t cloudsync_payload_context_size (size_t *header_size);
-int    cloudsync_payload_get (cloudsync_context *data, char **blob, int *blob_size, int *db_version, int *seq, int64_t *new_db_version, int64_t *new_seq);
+int    cloudsync_payload_get (cloudsync_context *data, char **blob, int *blob_size, int *db_version, int64_t *new_db_version);
 int    cloudsync_payload_save (cloudsync_context *data, const char *payload_path, int *blob_size); // available only on Desktop OS (no WASM, no mobile)
 
 // CloudSync table context

@@ -1926,8 +1926,8 @@ bool do_test_dbutils (void) {
 
     char *site_id_blob;
     int64_t site_id_blob_size;
-    int64_t dbver1, seq1;
-    rc = database_select_blob_2int(data, "SELECT cloudsync_siteid(),  cloudsync_db_version(),  cloudsync_seq();", &site_id_blob, &site_id_blob_size, &dbver1, &seq1);
+    int64_t dbver1;
+    rc = database_select_blob_int(data, "SELECT cloudsync_siteid(),  cloudsync_db_version();", &site_id_blob, &site_id_blob_size, &dbver1);
     if (rc != SQLITE_OK || site_id_blob == NULL ||dbver1 != db_version) goto finalize;
     cloudsync_memory_free(site_id_blob);
     

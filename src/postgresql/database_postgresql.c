@@ -704,27 +704,26 @@ cleanup:
     return rc;
 }
 
-int database_select3_values (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2, int64_t *value3) {
+int database_select2_values (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2) {
     cloudsync_reset_error(data);
     
     // init values
     *value = NULL;
     *value2 = 0;
-    *value3 = 0;
     *len = 0;
 
     int rc = SPI_execute(sql, true, 0);
     if (rc < 0) {
-        rc = cloudsync_set_error(data, "SPI_execute failed in database_select3_values", DBRES_ERROR);
+        rc = cloudsync_set_error(data, "SPI_execute failed in database_select2_values", DBRES_ERROR);
         goto cleanup;
     }
 
     if (!SPI_tuptable || !SPI_tuptable->tupdesc) {
-        rc = cloudsync_set_error(data, "No result table in database_select3_values", DBRES_ERROR);
+        rc = cloudsync_set_error(data, "No result table in database_select2_values", DBRES_ERROR);
         goto cleanup;
     }
-    if (SPI_tuptable->tupdesc->natts < 3) {
-        rc = cloudsync_set_error(data, "Result has fewer than 3 columns in database_select3_values", DBRES_ERROR);
+    if (SPI_tuptable->tupdesc->natts < 2) {
+        rc = cloudsync_set_error(data, "Result has fewer than 2 columns in database_select2_values", DBRES_ERROR);
         goto cleanup;
     }
     if (SPI_processed == 0) {
@@ -779,17 +778,6 @@ int database_select3_values (cloudsync_context *data, const char *sql, char **va
             *value2 = DatumGetInt64(datum2);
         } else if (typeid == INT4OID) {
             *value2 = (int64_t)DatumGetInt32(datum2);
-        }
-    }
-
-    // Third column - int
-    Datum datum3 = SPI_getbinval(tuple, SPI_tuptable->tupdesc, 3, &isnull);
-    if (!isnull) {
-        Oid typeid = SPI_gettypeid(SPI_tuptable->tupdesc, 3);
-        if (typeid == INT8OID) {
-            *value3 = DatumGetInt64(datum3);
-        } else if (typeid == INT4OID) {
-            *value3 = (int64_t)DatumGetInt32(datum3);
         }
     }
 
@@ -1121,8 +1109,8 @@ int database_select_blob (cloudsync_context *data, const char *sql, char **value
     return database_select1_value(data, sql, value, len, DBTYPE_BLOB);
 }
 
-int database_select_blob_2int (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2, int64_t *value3) {
-    return database_select3_values(data, sql, value, len, value2, value3);
+int database_select_blob_int (cloudsync_context *data, const char *sql, char **value, int64_t *len, int64_t *value2) {
+    return database_select2_values(data, sql, value, len, value2);
 }
 
 int database_cleanup (cloudsync_context *data) {

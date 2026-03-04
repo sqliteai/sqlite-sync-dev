@@ -64,7 +64,7 @@ int  database_exec_callback (cloudsync_context *data, const char *sql, database_
 int  database_select_int (cloudsync_context *data, const char *sql, int64_t *value);
 int  database_select_text (cloudsync_context *data, const char *sql, char **value);
 int  database_select_blob (cloudsync_context *data, const char *sql, char **value, int64_t *value_len);
-int  database_select_blob_2int (cloudsync_context *data, const char *sql, char **value, int64_t *value_len, int64_t *value2, int64_t *value3);
+int  database_select_blob_int (cloudsync_context *data, const char *sql, char **value, int64_t *value_len, int64_t *value2);
 int  database_write (cloudsync_context *data, const char *sql, const char **values, DBTYPE types[], int lens[], int count);
 bool database_table_exists (cloudsync_context *data, const char *table_name, const char *schema);
 bool database_internal_table_exists (cloudsync_context *data, const char *name);
