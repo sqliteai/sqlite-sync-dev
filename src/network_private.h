@@ -15,6 +15,7 @@
 #define CLOUDSYNC_ENDPOINT_STATUS           "status"
 #define CLOUDSYNC_DEFAULT_ENDPOINT_PORT     "443"
 #define CLOUDSYNC_HEADER_SQLITECLOUD        "Accept: sqlc/plain"
+#define CLOUDSYNC_HEADER_ORG                "X-CloudSync-Org"
 
 #define CLOUDSYNC_NETWORK_OK                1
 #define CLOUDSYNC_NETWORK_ERROR             2
@@ -31,6 +32,7 @@ typedef struct {
 } NETWORK_RESULT;
 
 char *network_data_get_siteid (network_data *data);
+char *network_data_get_orgid (network_data *data);
 bool network_data_set_endpoints (network_data *data, char *auth, char *check, char *upload, char *apply, char *status);
 
 bool network_compute_endpoints (sqlite3_context *context, network_data *data, const char *conn_string);
