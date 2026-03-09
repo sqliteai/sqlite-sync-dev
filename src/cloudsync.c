@@ -2986,6 +2986,7 @@ int cloudsync_table_sanity_check (cloudsync_context *data, const char *name, boo
     }
         
     // if user declared explicit primary key(s) then make sure they are all declared as NOT NULL
+    #if CLOUDSYNC_CHECK_NOTNULL_PRIKEYS
     if (npri_keys > 0) {
         int npri_keys_notnull = database_count_pk(data, name, true, cloudsync_schema(data));
         if (npri_keys_notnull < 0) return cloudsync_set_dberror(data);
@@ -2994,6 +2995,7 @@ int cloudsync_table_sanity_check (cloudsync_context *data, const char *name, boo
             return cloudsync_set_error(data, buffer, DBRES_ERROR);
         }
     }
+    #endif
     
     // check for columns declared as NOT NULL without a DEFAULT value.
     // Otherwise, col_merge_stmt would fail if changes to other columns are inserted first.

@@ -1561,7 +1561,7 @@ bool do_test_pk (sqlite3 *db, int ntest, bool print_result) {
     if (do_test_pk_single_value(db, SQLITE_INTEGER, -15592946911031981, 0, NULL, print_result) == false) goto finalize;
     if (do_test_pk_single_value(db, SQLITE_INTEGER, -922337203685477580, 0, NULL, print_result) == false) goto finalize;
     if (do_test_pk_single_value(db, SQLITE_FLOAT, 0, -9223372036854775.808, NULL, print_result) == false) goto finalize;
-    if (do_test_pk_single_value(db, SQLITE_NULL, 0, 0, NULL, print_result) == false) goto finalize;
+    // SQLITE_NULL is no longer valid for primary keys (runtime NULL check rejects it)
     if (do_test_pk_single_value(db, SQLITE_TEXT, 0, 0, "Hello World", print_result) == false) goto finalize;
     char blob[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
     if (do_test_pk_single_value(db, SQLITE_BLOB, sizeof(blob), 0, blob, print_result) == false) goto finalize;
@@ -2225,8 +2225,8 @@ bool do_test_pk_decode_count_from_buffer(void) {
     rc = sqlite3_cloudsync_init(db, NULL, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
-    // Encode multiple values
-    const char *sql = "SELECT cloudsync_pk_encode(123, 'text value', 3.14, X'DEADBEEF', NULL);";
+    // Encode multiple values (no NULL — primary keys cannot contain NULL)
+    const char *sql = "SELECT cloudsync_pk_encode(123, 'text value', 3.14, X'DEADBEEF');";
     rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
@@ -2247,7 +2247,7 @@ bool do_test_pk_decode_count_from_buffer(void) {
     // The count is embedded in the first byte of the encoded pk
     size_t seek = 0;
     int n = pk_decode(buffer, (size_t)pklen, -1, &seek, -1, NULL, NULL);
-    if (n != 5) goto cleanup;  // Should decode 5 values
+    if (n != 4) goto cleanup;  // Should decode 4 values
 
     result = true;
 
@@ -2693,8 +2693,8 @@ bool do_test_sql_pk_decode(void) {
     rc = sqlite3_cloudsync_init(db, NULL, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
-    // Create a primary key with multiple values
-    rc = sqlite3_prepare_v2(db, "SELECT cloudsync_pk_encode(123, 'hello', 3.14, X'DEADBEEF', NULL);", -1, &stmt, NULL);
+    // Create a primary key with multiple values (no NULL — primary keys cannot contain NULL)
+    rc = sqlite3_prepare_v2(db, "SELECT cloudsync_pk_encode(123, 'hello', 3.14, X'DEADBEEF');", -1, &stmt, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
     rc = sqlite3_step(stmt);
@@ -2774,21 +2774,6 @@ bool do_test_sql_pk_decode(void) {
     const void *blob_val = sqlite3_column_blob(stmt, 0);
     int blob_len = sqlite3_column_bytes(stmt, 0);
     if (blob_len != 4 || memcmp(blob_val, expected_blob, 4) != 0) goto cleanup;
-
-    sqlite3_finalize(stmt);
-    stmt = NULL;
-
-    // Test cloudsync_pk_decode for NULL (index 5)
-    rc = sqlite3_prepare_v2(db, "SELECT cloudsync_pk_decode(?, 5);", -1, &stmt, NULL);
-    if (rc != SQLITE_OK) goto cleanup;
-
-    rc = sqlite3_bind_blob(stmt, 1, pk_copy, pk_len, SQLITE_STATIC);
-    if (rc != SQLITE_OK) goto cleanup;
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_ROW) goto cleanup;
-
-    if (sqlite3_column_type(stmt, 0) != SQLITE_NULL) goto cleanup;
 
     sqlite3_finalize(stmt);
     stmt = NULL;
