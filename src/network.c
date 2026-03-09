@@ -1054,7 +1054,6 @@ int cloudsync_network_check_internal(sqlite3_context *context, int *pnrows, sync
     char json_payload[2024];
     snprintf(json_payload, sizeof(json_payload), "{\"dbVersion\":%lld, \"seq\":%d}", (long long)db_version, seq);
 
-    // http://uuid.g5.sqlite.cloud/v2/cloudsync/{dbname}/{site_id}/check
     NETWORK_RESULT result = network_receive_buffer(netdata, netdata->check_endpoint, netdata->authentication, true, true, json_payload, CLOUDSYNC_HEADER_SQLITECLOUD);
     int rc = SQLITE_OK;
     if (result.code == CLOUDSYNC_NETWORK_BUFFER) {
