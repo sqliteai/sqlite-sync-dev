@@ -61,6 +61,7 @@ int64_t cloudsync_dbversion_next (cloudsync_context *data, int64_t merging_versi
 int64_t cloudsync_dbversion (cloudsync_context *data);
 void cloudsync_update_schema_hash (cloudsync_context *data);
 int cloudsync_dbversion_check_uptodate (cloudsync_context *data);
+int cloudsync_dbversion_rerun (cloudsync_context *data);
 bool cloudsync_config_exists (cloudsync_context *data);
 dbvm_t *cloudsync_colvalue_stmt (cloudsync_context *data, const char *tbl_name, bool *persistent);
 
@@ -72,6 +73,8 @@ int cloudsync_commit_alter (cloudsync_context *data, const char *table_name);
 void *cloudsync_db (cloudsync_context *data);
 void *cloudsync_auxdata (cloudsync_context *data);
 void cloudsync_set_auxdata (cloudsync_context *data, void *xdata);
+int cloudsync_step_depth (cloudsync_context *data);
+void cloudsync_set_step_depth (cloudsync_context *data, int depth);
 int cloudsync_set_error (cloudsync_context *data, const char *err_user, int err_code);
 int cloudsync_set_dberror (cloudsync_context *data);
 const char *cloudsync_errmsg (cloudsync_context *data);
@@ -86,6 +89,7 @@ const char *cloudsync_table_schema (cloudsync_context *data, const char *table_n
 // Payload
 int    cloudsync_payload_apply (cloudsync_context *data, const char *payload, int blen, int *nrows);
 int    cloudsync_payload_encode_step (cloudsync_payload_context *payload, cloudsync_context *data, int argc, dbvalue_t **argv);
+int    cloudsync_payload_encode_combine (cloudsync_payload_context *target, cloudsync_payload_context *source);
 int    cloudsync_payload_encode_final (cloudsync_payload_context *payload, cloudsync_context *data);
 char  *cloudsync_payload_blob (cloudsync_payload_context *payload, int64_t *blob_size, int64_t *nrows);
 size_t cloudsync_payload_context_size (size_t *header_size);
@@ -98,6 +102,10 @@ void *table_column_lookup (cloudsync_table_context *table, const char *col_name,
 bool table_enabled (cloudsync_table_context *table);
 void table_set_enabled (cloudsync_table_context *table, bool value);
 bool table_add_to_context (cloudsync_context *data, table_algo algo, const char *table_name);
+const char *table_name (cloudsync_table_context *table);
+const char *table_metaref (cloudsync_table_context *table);
+int cloudsync_table_count (cloudsync_context *data);
+cloudsync_table_context *cloudsync_table_at (cloudsync_context *data, int index);
 bool table_pk_exists (cloudsync_table_context *table, const char *value, size_t len);
 int table_count_cols (cloudsync_table_context *table);
 int table_count_pks (cloudsync_table_context *table);
@@ -130,6 +138,10 @@ void *cloudsync_pk_context_pk (cloudsync_pk_decode_bind_context *ctx, int64_t *p
 char *cloudsync_pk_context_colname (cloudsync_pk_decode_bind_context *ctx, int64_t *colname_len);
 int64_t cloudsync_pk_context_cl (cloudsync_pk_decode_bind_context *ctx);
 int64_t cloudsync_pk_context_dbversion (cloudsync_pk_decode_bind_context *ctx);
+int64_t cloudsync_pk_context_colversion (cloudsync_pk_decode_bind_context *ctx);
+int64_t cloudsync_pk_context_seq (cloudsync_pk_decode_bind_context *ctx);
+void *cloudsync_pk_context_siteid (cloudsync_pk_decode_bind_context *ctx, int64_t *siteid_len);
+dbvm_t *cloudsync_pk_context_vm (cloudsync_pk_decode_bind_context *ctx);
 
 #ifdef __cplusplus
 }

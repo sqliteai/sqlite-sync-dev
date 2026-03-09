@@ -113,7 +113,8 @@ struct cloudsync_context {
     int         debug;
     bool        merge_equal_values;
     void        *aux_data;
-    
+    int         step_depth;
+
     // stmts and context values
     dbvm_t      *schema_version_stmt;
     dbvm_t      *data_version_stmt;
@@ -430,6 +431,23 @@ int64_t cloudsync_pk_context_dbversion (cloudsync_pk_decode_bind_context *ctx) {
     return ctx->db_version;
 }
 
+int64_t cloudsync_pk_context_colversion (cloudsync_pk_decode_bind_context *ctx) {
+    return ctx->col_version;
+}
+
+int64_t cloudsync_pk_context_seq (cloudsync_pk_decode_bind_context *ctx) {
+    return ctx->seq;
+}
+
+void *cloudsync_pk_context_siteid (cloudsync_pk_decode_bind_context *ctx, int64_t *siteid_len) {
+    *siteid_len = ctx->site_id_len;
+    return (void *)ctx->site_id;
+}
+
+dbvm_t *cloudsync_pk_context_vm (cloudsync_pk_decode_bind_context *ctx) {
+    return ctx->vm;
+}
+
 // MARK: - CloudSync Context -
 
 int cloudsync_insync (cloudsync_context *data) {
@@ -562,6 +580,14 @@ void *cloudsync_auxdata (cloudsync_context *data) {
 
 void cloudsync_set_auxdata (cloudsync_context *data, void *xdata) {
     data->aux_data = xdata;
+}
+
+int cloudsync_step_depth (cloudsync_context *data) {
+    return data->step_depth;
+}
+
+void cloudsync_set_step_depth (cloudsync_context *data, int depth) {
+    data->step_depth = depth;
 }
 
 void cloudsync_set_schema (cloudsync_context *data, const char *schema) {
@@ -1011,6 +1037,11 @@ bool table_add_to_context (cloudsync_context *data, table_algo algo, const char 
         table->npks = 1; // rowid
         #endif
     }
+
+    // NOTE: pk_name array is populated lazily (e.g. in DuckDB's
+    // BuildChangesSelectSQL) rather than here, because table_add_to_context
+    // can be called from database_exec_callback (settings load) where
+    // issuing another query on the same connection would recurse.
     
     int ncols = database_count_nonpk(data, table_name, table->schema);
     if (ncols < 0) {cloudsync_set_dberror(data); goto abort_add_table;}
@@ -1091,6 +1122,23 @@ int table_count_pks (cloudsync_table_context *table) {
 
 const char *table_colname (cloudsync_table_context *table, int index) {
     return table->col_name[index];
+}
+
+const char *table_name (cloudsync_table_context *table) {
+    return table->name;
+}
+
+const char *table_metaref (cloudsync_table_context *table) {
+    return table->meta_ref;
+}
+
+int cloudsync_table_count (cloudsync_context *data) {
+    return data->tables_count;
+}
+
+cloudsync_table_context *cloudsync_table_at (cloudsync_context *data, int index) {
+    if (index < 0 || index >= data->tables_count) return NULL;
+    return data->tables[index];
 }
 
 bool table_pk_exists (cloudsync_table_context *table, const char *value, size_t len) {
@@ -2224,6 +2272,42 @@ int cloudsync_payload_encode_step (cloudsync_payload_context *payload, cloudsync
     return DBRES_OK;
 }
 
+int cloudsync_payload_encode_combine (cloudsync_payload_context *target, cloudsync_payload_context *source) {
+    if (!source || source->nrows == 0) return DBRES_OK;
+    if (!target) return DBRES_ERROR;
+
+    // If target is empty, just take over source's data
+    if (target->nrows == 0) {
+        target->buffer = source->buffer;
+        target->bsize = source->bsize;
+        target->balloc = source->balloc;
+        target->bused = source->bused;
+        target->nrows = source->nrows;
+        target->ncols = source->ncols;
+        // Clear source so it won't free the buffer
+        source->buffer = NULL;
+        source->bsize = 0;
+        source->balloc = 0;
+        source->bused = 0;
+        source->nrows = 0;
+        return DBRES_OK;
+    }
+
+    // Append source buffer to target
+    size_t needed = target->bused + source->bused;
+    if (needed > target->balloc) {
+        size_t new_alloc = needed * 2;
+        char *new_buf = cloudsync_memory_realloc(target->buffer, (uint64_t)new_alloc);
+        if (!new_buf) return DBRES_NOMEM;
+        target->buffer = new_buf;
+        target->balloc = new_alloc;
+    }
+    memcpy(target->buffer + target->bused, source->buffer, source->bused);
+    target->bused += source->bused;
+    target->nrows += source->nrows;
+    return DBRES_OK;
+}
+
 int cloudsync_payload_encode_final (cloudsync_payload_context *payload, cloudsync_context *data) {
     DEBUG_FUNCTION("cloudsync_payload_encode_final");
     
@@ -2559,7 +2643,7 @@ int cloudsync_payload_get (cloudsync_context *data, char **blob, int *blob_size,
     // retrieve BLOB
     char sql[1024];
     snprintf(sql, sizeof(sql), "WITH max_db_version AS (SELECT MAX(db_version) AS max_db_version FROM cloudsync_changes WHERE site_id=cloudsync_siteid()) "
-                               "SELECT * FROM (SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) AS payload, max_db_version AS max_db_version, MAX(IIF(db_version = max_db_version, seq, 0)) FROM cloudsync_changes, max_db_version WHERE site_id=cloudsync_siteid() AND (db_version>%d OR (db_version=%d AND seq>%d))) WHERE payload IS NOT NULL", *db_version, *db_version, *seq);
+                               "SELECT * FROM (SELECT cloudsync_payload_encode(tbl, pk, col_name, col_value, col_version, db_version, site_id, cl, seq) AS payload, MAX(max_db_version) AS max_db_version, MAX(CASE WHEN db_version = max_db_version THEN seq ELSE 0 END) FROM cloudsync_changes, max_db_version WHERE site_id=cloudsync_siteid() AND (db_version>%d OR (db_version=%d AND seq>%d))) WHERE payload IS NOT NULL", *db_version, *db_version, *seq);
     
     int64_t len = 0;
     int rc = database_select_blob_2int(data, sql, blob, &len, new_db_version, new_seq);
@@ -2726,6 +2810,8 @@ int cloudsync_cleanup_internal (cloudsync_context *data, cloudsync_table_context
     return DBRES_OK;
 }
 
+static void cloudsync_finalize_context_stmts (cloudsync_context *data);
+
 int cloudsync_cleanup (cloudsync_context *data, const char *table_name) {
     cloudsync_table_context *table = table_lookup(data, table_name);
     if (!table) return DBRES_OK;
@@ -2742,6 +2828,7 @@ int cloudsync_cleanup (cloudsync_context *data, const char *table_name) {
         // cleanup database on last table
         cloudsync_reset_siteid(data);
         dbutils_settings_cleanup(data);
+        cloudsync_finalize_context_stmts(data);
     } else {
         if (database_internal_table_exists(data, CLOUDSYNC_TABLE_SETTINGS_NAME) == true) {
             cloudsync_update_schema_hash(data);
@@ -2755,6 +2842,16 @@ int cloudsync_cleanup_all (cloudsync_context *data) {
     return database_cleanup(data);
 }
 
+// Finalize and NULL out all context-level prepared statements and cached schema.
+// Shared by cloudsync_cleanup (last table) and cloudsync_terminate.
+static void cloudsync_finalize_context_stmts (cloudsync_context *data) {
+    if (data->schema_version_stmt) { databasevm_finalize(data->schema_version_stmt); data->schema_version_stmt = NULL; }
+    if (data->data_version_stmt) { databasevm_finalize(data->data_version_stmt); data->data_version_stmt = NULL; }
+    if (data->db_version_stmt) { databasevm_finalize(data->db_version_stmt); data->db_version_stmt = NULL; }
+    if (data->getset_siteid_stmt) { databasevm_finalize(data->getset_siteid_stmt); data->getset_siteid_stmt = NULL; }
+    if (data->current_schema) { cloudsync_memory_free(data->current_schema); data->current_schema = NULL; }
+}
+
 int cloudsync_terminate (cloudsync_context *data) {
     // can't use for/loop here because data->tables_count is changed by table_remove
     while (data->tables_count > 0) {
@@ -2762,23 +2859,13 @@ int cloudsync_terminate (cloudsync_context *data) {
         table_remove(data, t);
         table_free(t);
     }
-    
-    if (data->schema_version_stmt) databasevm_finalize(data->schema_version_stmt);
-    if (data->data_version_stmt) databasevm_finalize(data->data_version_stmt);
-    if (data->db_version_stmt) databasevm_finalize(data->db_version_stmt);
-    if (data->getset_siteid_stmt) databasevm_finalize(data->getset_siteid_stmt);
-    if (data->current_schema) cloudsync_memory_free(data->current_schema);
-    
-    data->schema_version_stmt = NULL;
-    data->data_version_stmt = NULL;
-    data->db_version_stmt = NULL;
-    data->getset_siteid_stmt = NULL;
-    data->current_schema = NULL;
-    
+
+    cloudsync_finalize_context_stmts(data);
+
     // reset the site_id so the cloudsync_context_init will be executed again
     // if any other cloudsync function is called after terminate
     data->site_id[0] = 0;
-    
+
     return 1;
 }
 
@@ -2786,7 +2873,7 @@ int cloudsync_init_table (cloudsync_context *data, const char *table_name, const
     // sanity check table and its primary key(s)
     int rc = cloudsync_table_sanity_check(data, table_name, skip_int_pk_check);
     if (rc != DBRES_OK) return rc;
-    
+
     // init cloudsync_settings
     if (cloudsync_context_init(data) == NULL) {
         return cloudsync_set_error(data, "Unable to initialize cloudsync context", DBRES_MISUSE);
@@ -2812,7 +2899,7 @@ int cloudsync_init_table (cloudsync_context *data, const char *table_name, const
     
     // check if table name was already augmented
     table_algo algo_current = dbutils_table_settings_get_algo(data, table_name);
-    
+
     // sanity check algorithm
     if ((algo_new == algo_current) && (algo_current != table_algo_none)) {
         // if table algorithms and the same and not none, do nothing
@@ -2845,16 +2932,16 @@ int cloudsync_init_table (cloudsync_context *data, const char *table_name, const
     // check triggers
     rc = database_create_triggers(data, table_name, algo_new, init_filter);
     if (rc != DBRES_OK) return cloudsync_set_error(data, "An error occurred while creating triggers", DBRES_MISUSE);
-    
+
     // check meta-table
     rc = database_create_metatable(data, table_name);
     if (rc != DBRES_OK) return cloudsync_set_error(data, "An error occurred while creating metatable", DBRES_MISUSE);
-    
+
     // add prepared statements
     if (cloudsync_add_dbvms(data) != DBRES_OK) {
         return cloudsync_set_error(data, "An error occurred while trying to compile prepared SQL statements", DBRES_MISUSE);
     }
-    
+
     // add table to in-memory data context
     if (table_add_to_context(data, algo_new, table_name) == false) {
         char buffer[1024];
@@ -2865,6 +2952,6 @@ int cloudsync_init_table (cloudsync_context *data, const char *table_name, const
     if (cloudsync_refill_metatable(data, table_name) != DBRES_OK) {
         return cloudsync_set_error(data, "An error occurred while trying to fill the augmented table", DBRES_MISUSE);
     }
-        
+
     return DBRES_OK;
 }
