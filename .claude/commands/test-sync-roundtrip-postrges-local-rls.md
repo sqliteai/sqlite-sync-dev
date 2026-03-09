@@ -1,4 +1,4 @@
-# Sync Roundtrip Test with RLS
+# Sync Roundtrip Test with local Postgres database and RLS policies
 
 Execute a full roundtrip sync test between multiple local SQLite databases and the local Supabase Docker PostgreSQL instance, verifying that Row Level Security (RLS) policies are correctly enforced during sync.
 
@@ -255,7 +255,7 @@ SELECT cloudsync_network_send_changes();
 
 -- Check for changes from server (repeat with 2-3 second delays)
 SELECT cloudsync_network_check_changes();
--- Repeat check_changes 3-5 times with delays until it returns 0 or stabilizes
+-- Repeat check_changes 3-5 times with delays until it returns more than 0 received rows or stabilizes
 ```
 
 **Recommended sync order:**
