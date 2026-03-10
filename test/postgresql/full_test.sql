@@ -37,6 +37,7 @@
 \ir 27_rls_batch_merge.sql
 \ir 28_db_version_tracking.sql
 \ir 29_rls_multicol.sql
+\ir 30_null_prikey_insert.sql
 
 -- 'Test summary'
 \echo '\nTest summary:'

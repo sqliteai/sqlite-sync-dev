@@ -2017,6 +2017,43 @@ bool do_test_error_cases (sqlite3 *db) {
     return true;
 }
 
+bool do_test_null_prikey_insert (sqlite3 *db) {
+    // Create a table with a primary key that allows NULL (no NOT NULL constraint)
+    const char *sql = "CREATE TABLE IF NOT EXISTS t_null_pk (id TEXT PRIMARY KEY, value TEXT);"
+                      "SELECT cloudsync_init('t_null_pk');";
+    int rc = sqlite3_exec(db, sql, NULL, NULL, NULL);
+    if (rc != SQLITE_OK) return false;
+
+    // Attempt to insert a row with NULL primary key — should fail
+    char *errmsg = NULL;
+    sql = "INSERT INTO t_null_pk (id, value) VALUES (NULL, 'test');";
+    rc = sqlite3_exec(db, sql, NULL, NULL, &errmsg);
+    if (rc == SQLITE_OK) return false;  // should have failed
+    if (!errmsg) return false;
+
+    // Verify the error message matches the expected format
+    const char *expected = "Insert aborted because primary key in table t_null_pk contains NULL values.";
+    bool match = (strcmp(errmsg, expected) == 0);
+    sqlite3_free(errmsg);
+    if (!match) return false;
+
+    // Verify that a non-NULL primary key insert succeeds
+    sql = "INSERT INTO t_null_pk (id, value) VALUES ('valid_id', 'test');";
+    rc = sqlite3_exec(db, sql, NULL, NULL, NULL);
+    if (rc != SQLITE_OK) return false;
+
+    // Verify the metatable has exactly 1 row (only the valid insert)
+    sqlite3_stmt *stmt = NULL;
+    rc = sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM t_null_pk_cloudsync;", -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return false;
+    if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); return false; }
+    int count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    if (count != 1) return false;
+
+    return true;
+}
+
 bool do_test_internal_functions (void) {
     sqlite3 *db = NULL;
     sqlite3_stmt *vm = NULL;
@@ -7842,6 +7879,7 @@ int main (int argc, const char * argv[]) {
     result += test_report("DBUtils Test:", do_test_dbutils());
     result += test_report("Minor Test:", do_test_others(db));
     result += test_report("Test Error Cases:", do_test_error_cases(db));
+    result += test_report("Null PK Insert Test:", do_test_null_prikey_insert(db));
     result += test_report("Test Single PK:", do_test_single_pk(print_result));
     
     int test_mask = TEST_INSERT | TEST_UPDATE | TEST_DELETE;
