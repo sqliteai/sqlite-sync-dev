@@ -264,7 +264,7 @@ sqlite3 myapp.db
 
 -- Create a table (primary key MUST be TEXT for global uniqueness)
 CREATE TABLE IF NOT EXISTS my_data (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -313,7 +313,7 @@ SELECT cloudsync_terminate();
 -- Load extension and create identical table structure
 .load ./cloudsync
 CREATE TABLE IF NOT EXISTS my_data (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -372,12 +372,12 @@ When designing your database schema for SQLite Sync, follow these best practices
 - **Use globally unique identifiers**: Always use TEXT primary keys with UUIDs, ULIDs, or similar globally unique identifiers
 - **Avoid auto-incrementing integers**: Integer primary keys can cause conflicts across multiple devices
 - **Use `cloudsync_uuid()`**: The built-in function generates UUIDv7 identifiers optimized for distributed systems
-- **All primary keys must be explicitly declared as `NOT NULL`**.
+- **Note:** Any write operation that includes a NULL value for a primary key column will be rejected with an error, even if SQLite would normally allow it due to a legacy behavior.
 
 ```sql
 -- ✅ Recommended: Globally unique TEXT primary key
 CREATE TABLE users (
-    id TEXT PRIMARY KEY NOT NULL,          -- Use cloudsync_uuid()
+    id TEXT PRIMARY KEY,                    -- Use cloudsync_uuid()
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL
 );

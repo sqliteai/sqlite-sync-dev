@@ -41,8 +41,8 @@ This document provides a reference for the SQLite functions provided by the `sql
 
 Before initialization, `cloudsync_init` performs schema sanity checks to ensure compatibility with CRDT requirements and best practices. These checks include:
 - Primary keys should not be auto-incrementing integers; GUIDs (UUIDs, ULIDs) are highly recommended to prevent multi-node collisions.
-- All primary key columns must be `NOT NULL`.
 - All non-primary key `NOT NULL` columns must have a `DEFAULT` value.
+- **Note:** Any write operation that includes a NULL value for a primary key column will be rejected with an error, even if SQLite would normally allow it due to a legacy behavior.
 
 **Schema Design Considerations:**
 

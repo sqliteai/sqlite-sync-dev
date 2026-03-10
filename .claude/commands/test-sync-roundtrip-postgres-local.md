@@ -16,7 +16,7 @@ Ask the user to provide a DDL query for the table(s) to test. It can be in Postg
 **Option 1: Simple TEXT primary key**
 ```sql
 CREATE TABLE test_sync (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     name TEXT,
     value INTEGER
 );
@@ -34,13 +34,13 @@ CREATE TABLE test_uuid (
 **Option 3: Two tables scenario (tests multi-table sync)**
 ```sql
 CREATE TABLE authors (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     name TEXT,
     email TEXT
 );
 
 CREATE TABLE books (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     title TEXT,
     author_id TEXT,
     published_year INTEGER

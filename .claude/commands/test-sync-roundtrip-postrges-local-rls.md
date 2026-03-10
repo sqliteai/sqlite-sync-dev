@@ -16,7 +16,7 @@ Ask the user to provide a DDL query for the table(s) to test. It can be in Postg
 **Option 1: Simple TEXT primary key with user_id for RLS**
 ```sql
 CREATE TABLE test_sync (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     user_id UUID NOT NULL,
     name TEXT,
     value INTEGER
@@ -36,14 +36,14 @@ CREATE TABLE test_uuid (
 **Option 3: Two tables scenario with user ownership**
 ```sql
 CREATE TABLE authors (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     user_id UUID NOT NULL,
     name TEXT,
     email TEXT
 );
 
 CREATE TABLE books (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     user_id UUID NOT NULL,
     title TEXT,
     author_id TEXT,
