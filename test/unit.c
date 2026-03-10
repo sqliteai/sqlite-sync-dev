@@ -1561,7 +1561,7 @@ bool do_test_pk (sqlite3 *db, int ntest, bool print_result) {
     if (do_test_pk_single_value(db, SQLITE_INTEGER, -15592946911031981, 0, NULL, print_result) == false) goto finalize;
     if (do_test_pk_single_value(db, SQLITE_INTEGER, -922337203685477580, 0, NULL, print_result) == false) goto finalize;
     if (do_test_pk_single_value(db, SQLITE_FLOAT, 0, -9223372036854775.808, NULL, print_result) == false) goto finalize;
-    if (do_test_pk_single_value(db, SQLITE_NULL, 0, 0, NULL, print_result) == false) goto finalize;
+    // SQLITE_NULL is no longer valid for primary keys (runtime NULL check rejects it)
     if (do_test_pk_single_value(db, SQLITE_TEXT, 0, 0, "Hello World", print_result) == false) goto finalize;
     char blob[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
     if (do_test_pk_single_value(db, SQLITE_BLOB, sizeof(blob), 0, blob, print_result) == false) goto finalize;
@@ -2017,6 +2017,43 @@ bool do_test_error_cases (sqlite3 *db) {
     return true;
 }
 
+bool do_test_null_prikey_insert (sqlite3 *db) {
+    // Create a table with a primary key that allows NULL (no NOT NULL constraint)
+    const char *sql = "CREATE TABLE IF NOT EXISTS t_null_pk (id TEXT PRIMARY KEY, value TEXT);"
+                      "SELECT cloudsync_init('t_null_pk');";
+    int rc = sqlite3_exec(db, sql, NULL, NULL, NULL);
+    if (rc != SQLITE_OK) return false;
+
+    // Attempt to insert a row with NULL primary key — should fail
+    char *errmsg = NULL;
+    sql = "INSERT INTO t_null_pk (id, value) VALUES (NULL, 'test');";
+    rc = sqlite3_exec(db, sql, NULL, NULL, &errmsg);
+    if (rc == SQLITE_OK) return false;  // should have failed
+    if (!errmsg) return false;
+
+    // Verify the error message matches the expected format
+    const char *expected = "Insert aborted because primary key in table t_null_pk contains NULL values.";
+    bool match = (strcmp(errmsg, expected) == 0);
+    sqlite3_free(errmsg);
+    if (!match) return false;
+
+    // Verify that a non-NULL primary key insert succeeds
+    sql = "INSERT INTO t_null_pk (id, value) VALUES ('valid_id', 'test');";
+    rc = sqlite3_exec(db, sql, NULL, NULL, NULL);
+    if (rc != SQLITE_OK) return false;
+
+    // Verify the metatable has exactly 1 row (only the valid insert)
+    sqlite3_stmt *stmt = NULL;
+    rc = sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM t_null_pk_cloudsync;", -1, &stmt, NULL);
+    if (rc != SQLITE_OK) return false;
+    if (sqlite3_step(stmt) != SQLITE_ROW) { sqlite3_finalize(stmt); return false; }
+    int count = sqlite3_column_int(stmt, 0);
+    sqlite3_finalize(stmt);
+    if (count != 1) return false;
+
+    return true;
+}
+
 bool do_test_internal_functions (void) {
     sqlite3 *db = NULL;
     sqlite3_stmt *vm = NULL;
@@ -2225,8 +2262,8 @@ bool do_test_pk_decode_count_from_buffer(void) {
     rc = sqlite3_cloudsync_init(db, NULL, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
-    // Encode multiple values
-    const char *sql = "SELECT cloudsync_pk_encode(123, 'text value', 3.14, X'DEADBEEF', NULL);";
+    // Encode multiple values (no NULL — primary keys cannot contain NULL)
+    const char *sql = "SELECT cloudsync_pk_encode(123, 'text value', 3.14, X'DEADBEEF');";
     rc = sqlite3_prepare_v2(db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
@@ -2247,7 +2284,7 @@ bool do_test_pk_decode_count_from_buffer(void) {
     // The count is embedded in the first byte of the encoded pk
     size_t seek = 0;
     int n = pk_decode(buffer, (size_t)pklen, -1, &seek, -1, NULL, NULL);
-    if (n != 5) goto cleanup;  // Should decode 5 values
+    if (n != 4) goto cleanup;  // Should decode 4 values
 
     result = true;
 
@@ -2693,8 +2730,8 @@ bool do_test_sql_pk_decode(void) {
     rc = sqlite3_cloudsync_init(db, NULL, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
-    // Create a primary key with multiple values
-    rc = sqlite3_prepare_v2(db, "SELECT cloudsync_pk_encode(123, 'hello', 3.14, X'DEADBEEF', NULL);", -1, &stmt, NULL);
+    // Create a primary key with multiple values (no NULL — primary keys cannot contain NULL)
+    rc = sqlite3_prepare_v2(db, "SELECT cloudsync_pk_encode(123, 'hello', 3.14, X'DEADBEEF');", -1, &stmt, NULL);
     if (rc != SQLITE_OK) goto cleanup;
 
     rc = sqlite3_step(stmt);
@@ -2774,21 +2811,6 @@ bool do_test_sql_pk_decode(void) {
     const void *blob_val = sqlite3_column_blob(stmt, 0);
     int blob_len = sqlite3_column_bytes(stmt, 0);
     if (blob_len != 4 || memcmp(blob_val, expected_blob, 4) != 0) goto cleanup;
-
-    sqlite3_finalize(stmt);
-    stmt = NULL;
-
-    // Test cloudsync_pk_decode for NULL (index 5)
-    rc = sqlite3_prepare_v2(db, "SELECT cloudsync_pk_decode(?, 5);", -1, &stmt, NULL);
-    if (rc != SQLITE_OK) goto cleanup;
-
-    rc = sqlite3_bind_blob(stmt, 1, pk_copy, pk_len, SQLITE_STATIC);
-    if (rc != SQLITE_OK) goto cleanup;
-
-    rc = sqlite3_step(stmt);
-    if (rc != SQLITE_ROW) goto cleanup;
-
-    if (sqlite3_column_type(stmt, 0) != SQLITE_NULL) goto cleanup;
 
     sqlite3_finalize(stmt);
     stmt = NULL;
@@ -7857,6 +7879,7 @@ int main (int argc, const char * argv[]) {
     result += test_report("DBUtils Test:", do_test_dbutils());
     result += test_report("Minor Test:", do_test_others(db));
     result += test_report("Test Error Cases:", do_test_error_cases(db));
+    result += test_report("Null PK Insert Test:", do_test_null_prikey_insert(db));
     result += test_report("Test Single PK:", do_test_single_pk(print_result));
     
     int test_mask = TEST_INSERT | TEST_UPDATE | TEST_DELETE;

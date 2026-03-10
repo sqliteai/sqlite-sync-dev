@@ -59,7 +59,7 @@ Tables must be created on both the local database and SQLite Cloud with identica
 -- Create the main tasks table
 -- Note: Primary key MUST be TEXT (not INTEGER) for global uniqueness
 CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     userid TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
@@ -84,7 +84,7 @@ SELECT cloudsync_is_enabled('tasks');
    - Execute the same CREATE TABLE statement:
    ```sql
    CREATE TABLE IF NOT EXISTS tasks (
-       id TEXT PRIMARY KEY NOT NULL,
+       id TEXT PRIMARY KEY,
        userid TEXT NOT NULL DEFAULT '',
        title TEXT NOT NULL DEFAULT '',
        description TEXT DEFAULT '',
@@ -149,7 +149,7 @@ sqlite3 todo_device_b.db
 ```sql
 -- Create identical table structure
 CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY NOT NULL,
+    id TEXT PRIMARY KEY,
     userid TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',

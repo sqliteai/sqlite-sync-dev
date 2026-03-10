@@ -31,7 +31,7 @@ Given a table with an ownership column (`user_id`):
 
 ```sql
 CREATE TABLE documents (
-    id      TEXT PRIMARY KEY NOT NULL,
+    id      TEXT PRIMARY KEY,
     user_id UUID,
     title   TEXT,
     content TEXT
@@ -68,13 +68,13 @@ This example shows the complete flow of syncing data between two databases where
 ```sql
 -- Source database (DB A) — no RLS, represents the sync server
 CREATE TABLE documents (
-    id TEXT PRIMARY KEY NOT NULL, user_id UUID, title TEXT, content TEXT
+    id TEXT PRIMARY KEY, user_id UUID, title TEXT, content TEXT
 );
 SELECT cloudsync_init('documents');
 
 -- Target database (DB B) — RLS enforced
 CREATE TABLE documents (
-    id TEXT PRIMARY KEY NOT NULL, user_id UUID, title TEXT, content TEXT
+    id TEXT PRIMARY KEY, user_id UUID, title TEXT, content TEXT
 );
 SELECT cloudsync_init('documents');
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
