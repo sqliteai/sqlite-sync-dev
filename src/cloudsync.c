@@ -258,7 +258,7 @@ bool force_uncompressed_blob = false;
 #endif
 
 // Internal prototypes
-int local_mark_insert_or_update_meta (cloudsync_table_context *table, const char *pk, size_t pklen, const char *col_name, int64_t db_version, int seq);
+int local_mark_insert_or_update_meta (cloudsync_table_context *table, const void *pk, size_t pklen, const char *col_name, int64_t db_version, int seq);
 
 // MARK: - CRDT algos -
 
@@ -1472,7 +1472,7 @@ cleanup:
     return rc;
 }
 
-int merge_insert_col (cloudsync_context *data, cloudsync_table_context *table, const char *pk, int pklen, const char *col_name, dbvalue_t *col_value, int64_t col_version, int64_t db_version, const char *site_id, int site_len, int64_t seq, int64_t *rowid) {
+int merge_insert_col (cloudsync_context *data, cloudsync_table_context *table, const void *pk, int pklen, const char *col_name, dbvalue_t *col_value, int64_t col_version, int64_t db_version, const char *site_id, int site_len, int64_t seq, int64_t *rowid) {
     int index;
     dbvm_t *vm = table_column_lookup(table, col_name, true, &index);
     if (vm == NULL) return cloudsync_set_error(data, "Unable to retrieve column merge precompiled statement in merge_insert_col", DBRES_MISUSE);
@@ -1655,7 +1655,7 @@ int merge_did_cid_win (cloudsync_context *data, cloudsync_table_context *table, 
     
     rc = databasevm_step(vm);
     if (rc == DBRES_ROW) {
-        const void *local_site_id = database_column_blob(vm, 0);
+        const void *local_site_id = database_column_blob(vm, 0, NULL);
         if (!local_site_id) {
             dbvm_reset(vm);
             return cloudsync_set_error(data, "NULL site_id in cloudsync table, table is probably corrupted", DBRES_ERROR);
@@ -2235,13 +2235,13 @@ int cloudsync_refill_metatable (cloudsync_context *data, const char *table_name)
 
         rc = databasevm_bind_text(vm, 1, col_name, -1);
         if (rc != DBRES_OK) goto finalize;
-        
+
         while (1) {
             rc = databasevm_step(vm);
             if (rc == DBRES_ROW) {
-                const char *pk = (const char *)database_column_text(vm, 0);
+                size_t pklen = 0;
+                const void *pk = (const char *)database_column_blob(vm, 0, &pklen);
                 if (!pk) { rc = DBRES_ERROR; break; }
-                size_t pklen = strlen(pk);
                 rc = local_mark_insert_or_update_meta(table, pk, pklen, col_name, db_version, cloudsync_bumpseq(data));
             } else if (rc == DBRES_DONE) {
                 rc = DBRES_OK;
@@ -2264,7 +2264,7 @@ finalize:
 
 // MARK: - Local -
 
-int local_update_sentinel (cloudsync_table_context *table, const char *pk, size_t pklen, int64_t db_version, int seq) {
+int local_update_sentinel (cloudsync_table_context *table, const void *pk, size_t pklen, int64_t db_version, int seq) {
     dbvm_t *vm = table->meta_sentinel_update_stmt;
     if (!vm) return -1;
     
@@ -2286,7 +2286,7 @@ cleanup:
     return rc;
 }
 
-int local_mark_insert_sentinel_meta (cloudsync_table_context *table, const char *pk, size_t pklen, int64_t db_version, int seq) {
+int local_mark_insert_sentinel_meta (cloudsync_table_context *table, const void *pk, size_t pklen, int64_t db_version, int seq) {
     dbvm_t *vm = table->meta_sentinel_insert_stmt;
     if (!vm) return -1;
     
@@ -2314,7 +2314,7 @@ cleanup:
     return rc;
 }
 
-int local_mark_insert_or_update_meta_impl (cloudsync_table_context *table, const char *pk, size_t pklen, const char *col_name, int col_version, int64_t db_version, int seq) {
+int local_mark_insert_or_update_meta_impl (cloudsync_table_context *table, const void *pk, size_t pklen, const char *col_name, int col_version, int64_t db_version, int seq) {
     
     dbvm_t *vm = table->meta_row_insert_update_stmt;
     if (!vm) return -1;
@@ -2349,15 +2349,15 @@ cleanup:
     return rc;
 }
 
-int local_mark_insert_or_update_meta (cloudsync_table_context *table, const char *pk, size_t pklen, const char *col_name, int64_t db_version, int seq) {
+int local_mark_insert_or_update_meta (cloudsync_table_context *table, const void *pk, size_t pklen, const char *col_name, int64_t db_version, int seq) {
     return local_mark_insert_or_update_meta_impl(table, pk, pklen, col_name, 1, db_version, seq);
 }
 
-int local_mark_delete_meta (cloudsync_table_context *table, const char *pk, size_t pklen, int64_t db_version, int seq) {
+int local_mark_delete_meta (cloudsync_table_context *table, const void *pk, size_t pklen, int64_t db_version, int seq) {
     return local_mark_insert_or_update_meta_impl(table, pk, pklen, NULL, 2, db_version, seq);
 }
 
-int local_drop_meta (cloudsync_table_context *table, const char *pk, size_t pklen) {
+int local_drop_meta (cloudsync_table_context *table, const void *pk, size_t pklen) {
     dbvm_t *vm = table->meta_row_drop_stmt;
     if (!vm) return -1;
     
@@ -2373,7 +2373,7 @@ cleanup:
     return rc;
 }
 
-int local_update_move_meta (cloudsync_table_context *table, const char *pk, size_t pklen, const char *pk2, size_t pklen2, int64_t db_version) {
+int local_update_move_meta (cloudsync_table_context *table, const void *pk, size_t pklen, const void *pk2, size_t pklen2, int64_t db_version) {
     /*
       * This function moves non-sentinel metadata entries from an old primary key (OLD.pk)
       * to a new primary key (NEW.pk) when a primary key change occurs.

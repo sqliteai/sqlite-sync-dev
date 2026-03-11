@@ -1984,8 +1984,8 @@ Datum cloudsync_col_value(PG_FUNCTION_ARGS) {
         PG_RETURN_BYTEA_P(result);
     } else if (rc == DBRES_ROW) {
         // copy value before reset invalidates SPI tuple memory
-        const void *blob = database_column_blob(vm, 0);
-        int blob_len = database_column_bytes(vm, 0);
+        size_t blob_len = 0;
+        const void *blob = database_column_blob(vm, 0, &blob_len);
         bytea *result = NULL;
         if (blob && blob_len > 0) {
             result = (bytea *)palloc(VARHDRSZ + blob_len);

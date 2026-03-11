@@ -2476,7 +2476,7 @@ Datum database_column_datum (dbvm_t *vm, int index) {
     return (isnull) ? (Datum)0 : d;
 }
 
-const void *database_column_blob (dbvm_t *vm, int index) {
+const void *database_column_blob (dbvm_t *vm, int index, size_t *len) {
     if (!vm) return NULL;
     pg_stmt_t *stmt = (pg_stmt_t*)vm;
     if (!stmt->last_tuptable || !stmt->current_tupdesc) return NULL;
@@ -2498,16 +2498,17 @@ const void *database_column_blob (dbvm_t *vm, int index) {
         return NULL;
     }
     
-    Size len = VARSIZE(ba) - VARHDRSZ;
-    void *out = palloc(len);
+    Size blen = VARSIZE(ba) - VARHDRSZ;
+    void *out = palloc(blen);
     if (!out) {
         MemoryContextSwitchTo(old);
         return NULL;
     }
     
-    memcpy(out, VARDATA(ba), (size_t)len);
+    memcpy(out, VARDATA(ba), (size_t)blen);
     MemoryContextSwitchTo(old);
     
+    if (len) *len = (size_t)blen;
     return out;
 }
 
@@ -2569,15 +2570,26 @@ const char *database_column_text (dbvm_t *vm, int index) {
     Datum d = get_datum(stmt, index, &isnull, &type);
     if (isnull) return NULL;
     
-    if (type != TEXTOID && type != VARCHAROID && type != BPCHAROID)
-        return NULL; // or convert via output function if you want
-
     MemoryContext old = MemoryContextSwitchTo(stmt->row_mcxt);
-    text *t = DatumGetTextP(d);
-    int len = VARSIZE(t) - VARHDRSZ;
-    char *out = palloc(len + 1);
-    memcpy(out, VARDATA(t), len);
-    out[len] = 0;
+    char *out = NULL;
+
+    if (type == BYTEAOID) {
+        bytea *b = DatumGetByteaP(d);
+        int len = VARSIZE(b) - VARHDRSZ;
+        out = palloc(len + 1);
+        memcpy(out, VARDATA(b), len);
+        out[len] = 0;
+    } else if (type == TEXTOID || type == VARCHAROID || type == BPCHAROID) {
+        text *t = DatumGetTextP(d);
+        int len = VARSIZE(t) - VARHDRSZ;
+        out = palloc(len + 1);
+        memcpy(out, VARDATA(t), len);
+        out[len] = 0;
+    } else {
+        MemoryContextSwitchTo(old);
+        return NULL;
+    }
+
     MemoryContextSwitchTo(old);
     
     return out;
@@ -2892,6 +2904,7 @@ int database_begin_savepoint (cloudsync_context *data, const char *savepoint_nam
 
 int database_commit_savepoint (cloudsync_context *data, const char *savepoint_name) {
     cloudsync_reset_error(data);
+    if (GetCurrentTransactionNestLevel() <= 1) return DBRES_OK;
     int rc = DBRES_OK;
 
     MemoryContext oldcontext = CurrentMemoryContext;
@@ -2916,6 +2929,7 @@ int database_commit_savepoint (cloudsync_context *data, const char *savepoint_na
 
 int database_rollback_savepoint (cloudsync_context *data, const char *savepoint_name) {
     cloudsync_reset_error(data);
+    if (GetCurrentTransactionNestLevel() <= 1) return DBRES_OK;
     int rc = DBRES_OK;
 
     MemoryContext oldcontext = CurrentMemoryContext;

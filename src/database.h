@@ -119,7 +119,7 @@ void database_value_free (dbvalue_t *value);
 void *database_value_dup (dbvalue_t *value);
 
 // COLUMN
-const void *database_column_blob (dbvm_t *vm, int index);
+const void *database_column_blob (dbvm_t *vm, int index, size_t *len);
 double database_column_double (dbvm_t *vm, int index);
 int64_t database_column_int (dbvm_t *vm, int index);
 const char *database_column_text (dbvm_t *vm, int index);

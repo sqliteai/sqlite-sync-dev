@@ -1289,7 +1289,8 @@ void *database_value_dup (dbvalue_t *value) {
 
 // MARK: - COLUMN -
 
-const void *database_column_blob (dbvm_t *vm, int index) {
+const void *database_column_blob (dbvm_t *vm, int index, size_t *len) {
+    if (len) *len = sqlite3_column_bytes((sqlite3_stmt *)vm, index);
     return sqlite3_column_blob((sqlite3_stmt *)vm, index);
 }
 
