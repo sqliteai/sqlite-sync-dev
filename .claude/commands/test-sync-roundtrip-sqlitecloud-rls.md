@@ -4,8 +4,12 @@ Execute a full roundtrip sync test between multiple local SQLite databases and t
 
 ## Prerequisites
 - Connection string to a sqlitecloud project
-- HTTP sync server running on http://localhost:8091/<dbname>
+- HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
+
+### Step 0: Get Sync Server Address
+
+Ask the user for the HTTP sync server base URL. Propose `https://cloudsync-staging-testing.fly.dev` as the default. Save this as `SYNC_SERVER_URL` for use throughout the test. The full sync endpoint will be `<SYNC_SERVER_URL>/<db_name>`.
 
 ## Test Procedure
 
@@ -61,7 +65,7 @@ Ask the user to describe the policy in plain English.
 
 ### Step 3: Get sqlitecloud connection string from User
 
-Ask the user to provide a connection string in the form of "sqlitecloud://<host>:<port>/<db_name>?apikey=<apikey>" to be later used with the sqlitecloud cli (sqlc) with `~/go/bin/sqlc "<connection_string>"`
+Ask the user to provide a connection string in the form of "sqlitecloud://<host>:<port>/<db_name>?apikey=<apikey>" to be later used with the sqlitecloud cli (sqlc) with `~/go/bin/sqlc "<connection_string>"`. Save the first subdomain in the connection string address as `PROJECT_ID` for use throughout the test. Save the configuration string `'{"address":"<SYNC_SERVER_URL>","database":"<db_name>","projectID":"<PROJECT_ID>","organizationID":"org_sqlitecloud"}'` as `NETWORK_CONFIG` for use throughout the test.
 
 ### Step 4: Setup SQLiteCloud with RLS
 
@@ -142,7 +146,7 @@ curl -X "POST" "https://<hostname_from_connection_string>/v2/tokens" \
    -H 'Authorization: Bearer <apikey_from_connection_string>' \
    -H 'Content-Type: application/json; charset=utf-8' \
    -d $'{
- "name": "laude2@sqlitecloud.io",
+ "name": "claude2@sqlitecloud.io",
  "userId": "018ecfc2-b2b1-7cc3-a9f0-222222222222"
 }'
 ```
@@ -157,7 +161,7 @@ save the userId and the token values as USER2_ID and TOKEN_USER2 to be reused la
 Create four temporary SQLite databases using the Homebrew version (IMPORTANT: system sqlite3 cannot load extensions):
 
 ```bash
-SQLITE_BIN="/opt/homebrew/Cellar/sqlite/3.50.4/bin/sqlite3"
+SQLITE_BIN="/opt/homebrew/Cellar/sqlite/3.51.2_1/bin/sqlite3"
 # or find it with: ls /opt/homebrew/Cellar/sqlite/*/bin/sqlite3 | head -1
 ```
 
@@ -169,8 +173,8 @@ $SQLITE_BIN /tmp/sync_test_user1_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/<db_name>');
-SELECT cloudsync_network_set_token('sqlitecloud://<hostname_from_connection_string>?token=<TOKEN_USER1>');
+SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_set_token('<TOKEN_USER1>');
 ```
 
 **Database 1B (User 1, Device B):**
@@ -181,8 +185,8 @@ $SQLITE_BIN /tmp/sync_test_user1_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/<db_name>');
-SELECT cloudsync_network_set_token('sqlitecloud://<hostname_from_connection_string>?token=<TOKEN_USER1>');
+SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_set_token('<TOKEN_USER1>');
 ```
 
 **Database 2A (User 2, Device A):**
@@ -193,8 +197,8 @@ $SQLITE_BIN /tmp/sync_test_user2_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
-SELECT cloudsync_network_set_token('sqlitecloud://<hostname_from_connection_string>?token=<TOKEN_USER2>');
+SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_set_token('<TOKEN_USER2>');
 ```
 
 **Database 2B (User 2, Device B):**
@@ -205,8 +209,8 @@ $SQLITE_BIN /tmp/sync_test_user2_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
-SELECT cloudsync_network_set_token('sqlitecloud://<hostname_from_connection_string>?token=<TOKEN_USER2>');
+SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_set_token('<TOKEN_USER2>');
 ```
 
 ### Step 7: Insert Test Data
@@ -406,14 +410,14 @@ user_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'
 ```sql
 -- WRONG: Separate sessions won't work
 -- Session 1:
-SELECT cloudsync_network_init('http://localhost:8091/<db_name>');
+SELECT cloudsync_network_init('<NETWORK_CONFIG>');
 SELECT cloudsync_network_set_token('...');
 -- Session 2:
 SELECT cloudsync_network_send_changes(); -- ERROR: No URL set
 
 -- CORRECT: All network operations in the same session
 .load dist/cloudsync.dylib
-SELECT cloudsync_network_init('http://localhost:8091/<db_name>');
+SELECT cloudsync_network_init('<NETWORK_CONFIG>');
 SELECT cloudsync_network_set_token('...');
 SELECT cloudsync_network_send_changes();
 SELECT cloudsync_terminate();

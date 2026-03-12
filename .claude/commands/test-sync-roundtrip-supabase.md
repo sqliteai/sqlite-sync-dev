@@ -3,11 +3,23 @@
 Execute a full roundtrip sync test between a local SQLite database and the local Supabase Docker PostgreSQL instance.
 
 ## Prerequisites
-- Supabase Docker container running (PostgreSQL on port 54322)
-- HTTP sync server running on http://localhost:8091/postgres
+- Supabase instance running (local Docker or remote)
+- HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
 
 ## Test Procedure
+
+### Step 0: Get Connection Parameters
+
+Ask the user for the following parameters:
+
+1. **Sync server URL**: Propose `https://cloudsync-staging-testing.fly.dev` as default. Save as `SYNC_SERVER_URL`. The full sync endpoint will be `<SYNC_SERVER_URL>/postgres`.
+
+2. **PostgreSQL connection string**: Propose `postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres` as default. Save as `PG_CONN`. Use this for all `psql` connections throughout the test.
+
+3. **Supabase API key** (used for JWT token generation): Propose `sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz` as default. Save as `SUPABASE_APIKEY`.
+
+Derive `AUTH_URL` from the PostgreSQL connection string by extracting the host and using port `54321` (Supabase GoTrue). For example, if `PG_CONN` is `postgresql://user:pass@10.0.0.5:54322/postgres`, then `AUTH_URL` is `http://10.0.0.5:54321`. For `127.0.0.1`, use `http://127.0.0.1:54321`.
 
 ### Step 1: Get DDL from User
 
@@ -61,7 +73,7 @@ Convert the provided DDL to both SQLite and PostgreSQL compatible formats if nee
 
 Run the token script from the cloudsync project:
 ```bash
-cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=claude@sqlitecloud.io -password="password" -apikey=sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz -auth-url=http://127.0.0.1:54321
+cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=claude@sqlitecloud.io -password="password" -apikey=<SUPABASE_APIKEY> -auth-url=<AUTH_URL>
 ```
 Save the JWT token for later use.
 
@@ -69,7 +81,7 @@ Save the JWT token for later use.
 
 Connect to Supabase PostgreSQL and prepare the environment:
 ```bash
-psql postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres
+psql <PG_CONN>
 ```
 
 Inside psql:
@@ -88,7 +100,7 @@ Inside psql:
 Create a temporary SQLite database using the Homebrew version (IMPORTANT: system sqlite3 cannot load extensions):
 
 ```bash
-SQLITE_BIN="/opt/homebrew/Cellar/sqlite/3.50.4/bin/sqlite3"
+SQLITE_BIN="/opt/homebrew/Cellar/sqlite/3.51.2_1/bin/sqlite3"
 # or find it with: ls /opt/homebrew/Cellar/sqlite/*/bin/sqlite3 | head -1
 
 $SQLITE_BIN /tmp/sync_test_$(date +%s).db
@@ -100,7 +112,7 @@ Inside sqlite3:
 -- Create table with SQLite DDL
 <CREATE_TABLE_query>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
+SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('<jwt_token>');
 -- Insert test data (different from PostgreSQL to test merge)
 <INSERT_statements>
@@ -149,6 +161,6 @@ Report the test results including:
 
 Execute all SQL queries without asking for user permission on:
 - SQLite test databases in `/tmp/` (e.g., `/tmp/sync_test_*.db`)
-- PostgreSQL via `psql postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres`
+- PostgreSQL via `psql <PG_CONN>`
 
 These are local test environments and do not require confirmation for each query.

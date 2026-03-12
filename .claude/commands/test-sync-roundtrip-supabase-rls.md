@@ -3,11 +3,23 @@
 Execute a full roundtrip sync test between multiple local SQLite databases and the local Supabase Docker PostgreSQL instance, verifying that Row Level Security (RLS) policies are correctly enforced during sync.
 
 ## Prerequisites
-- Supabase Docker container running (PostgreSQL on port 54322)
-- HTTP sync server running on http://localhost:8091/postgres
+- Supabase instance running (local Docker or remote)
+- HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
 
 ## Test Procedure
+
+### Step 0: Get Connection Parameters
+
+Ask the user for the following parameters:
+
+1. **Sync server URL**: Propose `https://cloudsync-staging-testing.fly.dev` as default. Save as `SYNC_SERVER_URL`. The full sync endpoint will be `<SYNC_SERVER_URL>/postgres`.
+
+2. **PostgreSQL connection string**: Propose `postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres` as default. Save as `PG_CONN`. Use this for all `psql` connections throughout the test.
+
+3. **Supabase API key** (used for JWT token generation): Propose `sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz` as default. Save as `SUPABASE_APIKEY`.
+
+Derive `AUTH_URL` from the PostgreSQL connection string by extracting the host and using port `54321` (Supabase GoTrue). For example, if `PG_CONN` is `postgresql://user:pass@10.0.0.5:54322/postgres`, then `AUTH_URL` is `http://10.0.0.5:54321`. For `127.0.0.1`, use `http://127.0.0.1:54321`.
 
 ### Step 1: Get DDL from User
 
@@ -79,7 +91,7 @@ Convert the provided DDL to both SQLite and PostgreSQL compatible formats if nee
 
 Connect to Supabase PostgreSQL and prepare the environment:
 ```bash
-psql postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres
+psql <PG_CONN>
 ```
 
 Inside psql:
@@ -148,13 +160,13 @@ Get JWT tokens for both test users by running the token script twice:
 
 **User 1: claude1@sqlitecloud.io**
 ```bash
-cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=claude1@sqlitecloud.io -password="password" -apikey=sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz -auth-url=http://127.0.0.1:54321
+cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=claude1@sqlitecloud.io -password="password" -apikey=<SUPABASE_APIKEY> -auth-url=<AUTH_URL>
 ```
 Save as `JWT_USER1`.
 
 **User 2: claude2@sqlitecloud.io**
 ```bash
-cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=claude2@sqlitecloud.io -password="password" -apikey=sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz -auth-url=http://127.0.0.1:54321
+cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-local -email=claude2@sqlitecloud.io -password="password" -apikey=<SUPABASE_APIKEY> -auth-url=<AUTH_URL>
 ```
 Save as `JWT_USER2`.
 
@@ -167,7 +179,7 @@ Also extract the user IDs from the JWT tokens (the `sub` claim) for use in INSER
 Create four temporary SQLite databases using the Homebrew version (IMPORTANT: system sqlite3 cannot load extensions):
 
 ```bash
-SQLITE_BIN="/opt/homebrew/Cellar/sqlite/3.50.4/bin/sqlite3"
+SQLITE_BIN="/opt/homebrew/Cellar/sqlite/3.51.2_1/bin/sqlite3"
 # or find it with: ls /opt/homebrew/Cellar/sqlite/*/bin/sqlite3 | head -1
 ```
 
@@ -179,7 +191,7 @@ $SQLITE_BIN /tmp/sync_test_user1_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
+SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('<JWT_USER1>');
 ```
 
@@ -191,7 +203,7 @@ $SQLITE_BIN /tmp/sync_test_user1_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
+SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('<JWT_USER1>');
 ```
 
@@ -203,7 +215,7 @@ $SQLITE_BIN /tmp/sync_test_user2_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
+SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('<JWT_USER2>');
 ```
 
@@ -215,7 +227,7 @@ $SQLITE_BIN /tmp/sync_test_user2_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
+SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('<JWT_USER2>');
 ```
 
@@ -473,14 +485,14 @@ Ensure column types are compatible between SQLite and PostgreSQL:
 ```sql
 -- WRONG: Separate sessions won't work
 -- Session 1:
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
+SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('...');
 -- Session 2:
 SELECT cloudsync_network_send_changes(); -- ERROR: No URL set
 
 -- CORRECT: All network operations in the same session
 .load dist/cloudsync.dylib
-SELECT cloudsync_network_init('http://localhost:8091/postgres');
+SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('...');
 SELECT cloudsync_network_send_changes();
 SELECT cloudsync_terminate();
@@ -518,6 +530,6 @@ INSERT INTO todos (id, ...) VALUES ('11111111-1111-1111-1111-111111111111', ...)
 
 Execute all SQL queries without asking for user permission on:
 - SQLite test databases in `/tmp/` (e.g., `/tmp/sync_test_*.db`)
-- PostgreSQL via `psql postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres`
+- PostgreSQL via `psql <PG_CONN>`
 
 These are local test environments and do not require confirmation for each query.
