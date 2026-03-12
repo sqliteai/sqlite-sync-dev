@@ -39,6 +39,8 @@
 \ir 29_rls_multicol.sql
 \ir 30_null_prikey_insert.sql
 
+\ir 31_alter_table_sync.sql
+
 -- 'Test summary'
 \echo '\nTest summary:'
 \echo - Failures: :fail
