@@ -169,7 +169,7 @@ DATABASE_RESULT unit_exec (cloudsync_context *data, const char *sql, const char 
             
             char *buffer = NULL;
             if (type == SQLITE_BLOB) {
-                const void *bvalue = database_column_blob(pstmt, i);
+                const void *bvalue = database_column_blob(pstmt, i, NULL);
                 if (bvalue) {
                     buffer = (char *)cloudsync_memory_alloc(len);
                     if (!buffer) {rc = SQLITE_NOMEM; goto unitexec_finalize;}
