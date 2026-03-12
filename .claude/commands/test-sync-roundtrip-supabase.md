@@ -9,7 +9,7 @@ Execute a full roundtrip sync test between a local SQLite database and the local
 
 ## Test Procedure
 
-### Step 0: Get Connection Parameters
+### Step 1: Get Connection Parameters
 
 Ask the user for the following parameters:
 
@@ -21,7 +21,7 @@ Ask the user for the following parameters:
 
 Derive `AUTH_URL` from the PostgreSQL connection string by extracting the host and using port `54321` (Supabase GoTrue). For example, if `PG_CONN` is `postgresql://user:pass@10.0.0.5:54322/postgres`, then `AUTH_URL` is `http://10.0.0.5:54321`. For `127.0.0.1`, use `http://127.0.0.1:54321`.
 
-### Step 1: Get DDL from User
+### Step 2: Get DDL from User
 
 Ask the user to provide a DDL query for the table(s) to test. It can be in PostgreSQL or SQLite format. Offer the following options:
 
@@ -61,7 +61,7 @@ CREATE TABLE books (
 
 **Note:** Avoid INTEGER PRIMARY KEY for sync tests as it is not recommended for distributed sync scenarios (conflicts with auto-increment across devices).
 
-### Step 2: Convert DDL
+### Step 3: Convert DDL
 
 Convert the provided DDL to both SQLite and PostgreSQL compatible formats if needed. Key differences:
 - SQLite uses `INTEGER PRIMARY KEY` for auto-increment, PostgreSQL uses `SERIAL` or `BIGSERIAL`
@@ -69,7 +69,7 @@ Convert the provided DDL to both SQLite and PostgreSQL compatible formats if nee
 - PostgreSQL has more specific types like `TIMESTAMPTZ`, SQLite uses `TEXT` for dates
 - For UUID primary keys, SQLite uses `TEXT`, PostgreSQL uses `UUID`
 
-### Step 3: Get JWT Token
+### Step 4: Get JWT Token
 
 Run the token script from the cloudsync project:
 ```bash
@@ -77,7 +77,7 @@ cd ../cloudsync && go run scripts/get_supabase_token.go -project-ref=supabase-lo
 ```
 Save the JWT token for later use.
 
-### Step 4: Setup PostgreSQL
+### Step 5: Setup PostgreSQL
 
 Connect to Supabase PostgreSQL and prepare the environment:
 ```bash
@@ -95,7 +95,7 @@ Inside psql:
 5. Initialize cloudsync: `SELECT cloudsync_init('<table_name>');`
 6. Insert some test data into the table
 
-### Step 5: Setup SQLite
+### Step 6: Setup SQLite
 
 Create a temporary SQLite database using the Homebrew version (IMPORTANT: system sqlite3 cannot load extensions):
 
@@ -118,7 +118,7 @@ SELECT cloudsync_network_set_token('<jwt_token>');
 <INSERT_statements>
 ```
 
-### Step 6: Execute Sync
+### Step 7: Execute Sync
 
 In the SQLite session:
 ```sql
@@ -133,7 +133,7 @@ SELECT cloudsync_network_check_changes();
 SELECT * FROM <table_name>;
 ```
 
-### Step 7: Verify Results
+### Step 8: Verify Results
 
 1. In SQLite, run `SELECT * FROM <table_name>;` and capture the output
 2. In PostgreSQL, run `SELECT * FROM <table_name>;` and capture the output

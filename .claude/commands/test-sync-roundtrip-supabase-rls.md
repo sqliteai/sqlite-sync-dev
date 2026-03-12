@@ -9,7 +9,7 @@ Execute a full roundtrip sync test between multiple local SQLite databases and t
 
 ## Test Procedure
 
-### Step 0: Get Connection Parameters
+### Step 1: Get Connection Parameters
 
 Ask the user for the following parameters:
 
@@ -21,7 +21,7 @@ Ask the user for the following parameters:
 
 Derive `AUTH_URL` from the PostgreSQL connection string by extracting the host and using port `54321` (Supabase GoTrue). For example, if `PG_CONN` is `postgresql://user:pass@10.0.0.5:54322/postgres`, then `AUTH_URL` is `http://10.0.0.5:54321`. For `127.0.0.1`, use `http://127.0.0.1:54321`.
 
-### Step 1: Get DDL from User
+### Step 2: Get DDL from User
 
 Ask the user to provide a DDL query for the table(s) to test. It can be in PostgreSQL or SQLite format. Offer the following options:
 
@@ -65,7 +65,7 @@ CREATE TABLE books (
 
 **Note:** Tables should include a `user_id` column (UUID type) for RLS policies to filter by authenticated user.
 
-### Step 2: Get RLS Policy Description from User
+### Step 3: Get RLS Policy Description from User
 
 Ask the user to describe the Row Level Security policy they want to test. Offer the following common patterns:
 
@@ -78,7 +78,7 @@ Ask the user to describe the Row Level Security policy they want to test. Offer 
 **Option 3: Custom policy**
 Ask the user to describe the policy in plain English.
 
-### Step 3: Convert DDL
+### Step 4: Convert DDL
 
 Convert the provided DDL to both SQLite and PostgreSQL compatible formats if needed. Key differences:
 - SQLite uses `INTEGER PRIMARY KEY` for auto-increment, PostgreSQL uses `SERIAL` or `BIGSERIAL`
@@ -87,7 +87,7 @@ Convert the provided DDL to both SQLite and PostgreSQL compatible formats if nee
 - For UUID primary keys, SQLite uses `TEXT`, PostgreSQL uses `UUID`
 - For `user_id UUID`, SQLite uses `TEXT`
 
-### Step 4: Setup PostgreSQL with RLS
+### Step 5: Setup PostgreSQL with RLS
 
 Connect to Supabase PostgreSQL and prepare the environment:
 ```bash
@@ -154,7 +154,7 @@ Inside psql:
 9. Initialize cloudsync: `SELECT cloudsync_init('<table_name>');`
 10. Insert some initial test data (optional, can be done via SQLite clients)
 
-### Step 5: Get JWT Tokens for Two Users
+### Step 6: Get JWT Tokens for Two Users
 
 Get JWT tokens for both test users by running the token script twice:
 
@@ -174,7 +174,7 @@ Also extract the user IDs from the JWT tokens (the `sub` claim) for use in INSER
 - `USER1_ID` = UUID from JWT_USER1
 - `USER2_ID` = UUID from JWT_USER2
 
-### Step 6: Setup Four SQLite Databases
+### Step 7: Setup Four SQLite Databases
 
 Create four temporary SQLite databases using the Homebrew version (IMPORTANT: system sqlite3 cannot load extensions):
 
@@ -231,7 +231,7 @@ SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
 SELECT cloudsync_network_set_token('<JWT_USER2>');
 ```
 
-### Step 7: Insert Test Data
+### Step 8: Insert Test Data
 
 Insert distinct test data in each database. Use the extracted user IDs for the `user_id` column:
 
@@ -257,7 +257,7 @@ INSERT INTO <table_name> (id, user_id, name, value) VALUES ('u2_a_2', '<USER2_ID
 INSERT INTO <table_name> (id, user_id, name, value) VALUES ('u2_b_1', '<USER2_ID>', 'User2 DeviceB Row1', 400);
 ```
 
-### Step 8: Execute Sync on All Databases
+### Step 9: Execute Sync on All Databases
 
 For each of the four SQLite databases, execute the sync operations:
 
@@ -277,7 +277,7 @@ SELECT cloudsync_network_check_changes();
 4. Sync Database 2B (send + check)
 5. Re-sync all databases (check_changes) to ensure full propagation
 
-### Step 9: Verify RLS Enforcement
+### Step 10: Verify RLS Enforcement
 
 After syncing all databases, verify that each database contains only the expected rows based on the RLS policy:
 
@@ -306,7 +306,7 @@ SELECT COUNT(*) FROM <table_name>;
 SELECT user_id, COUNT(*) FROM <table_name> GROUP BY user_id;
 ```
 
-### Step 10: Test Write RLS Policy Enforcement
+### Step 11: Test Write RLS Policy Enforcement
 
 Test that the server-side RLS policy blocks unauthorized writes by attempting to insert a row with a `user_id` that doesn't match the authenticated user's JWT token.
 
@@ -352,7 +352,7 @@ SELECT * FROM <table_name> WHERE id = 'malicious_1';
 1. The malicious row appears in PostgreSQL (RLS bypass vulnerability)
 2. The malicious row syncs to User 2's databases (data leakage)
 
-### Step 11: Cleanup
+### Step 12: Cleanup
 
 In each SQLite database before closing:
 ```sql

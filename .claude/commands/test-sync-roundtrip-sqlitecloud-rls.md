@@ -7,13 +7,13 @@ Execute a full roundtrip sync test between multiple local SQLite databases and t
 - HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
 
-### Step 0: Get Sync Server Address
+### Step 1: Get Sync Server Address
 
 Ask the user for the HTTP sync server base URL. Propose `https://cloudsync-staging-testing.fly.dev` as the default. Save this as `SYNC_SERVER_URL` for use throughout the test. The full sync endpoint will be `<SYNC_SERVER_URL>/<db_name>`.
 
 ## Test Procedure
 
-### Step 1: Get DDL from User
+### Step 2: Get DDL from User
 
 Ask the user to provide a DDL query for the table(s) to test. It can be in PostgreSQL or SQLite format. Offer the following options:
 
@@ -27,30 +27,16 @@ CREATE TABLE test_sync (
 );
 ```
 
-**Option 2: Two tables scenario with user ownership**
-```sql
-CREATE TABLE authors (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    name TEXT,
-    email TEXT
-);
+**Option 2: Multi tables scenario for advanced RLS policy**
 
-CREATE TABLE books (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    title TEXT,
-    author_id TEXT,
-    published_year INTEGER
-);
-```
+Propose a simple but multitables real world scenario
 
 **Option 3: Custom policy**
 Ask the user to describe the table/tables in plain English or DDL queries.
 
 **Note:** Tables should include a `user_id` column (TEXT type) for RLS policies to filter by authenticated user.
 
-### Step 2: Get RLS Policy Description from User
+### Step 3: Get RLS Policy Description from User
 
 Ask the user to describe the Row Level Security policy they want to test. Offer the following common patterns:
 
@@ -63,11 +49,12 @@ Ask the user to describe the Row Level Security policy they want to test. Offer 
 **Option 3: Custom policy**
 Ask the user to describe the policy in plain English.
 
-### Step 3: Get sqlitecloud connection string from User
+### Step 4: Get sqlitecloud connection string from User
 
-Ask the user to provide a connection string in the form of "sqlitecloud://<host>:<port>/<db_name>?apikey=<apikey>" to be later used with the sqlitecloud cli (sqlc) with `~/go/bin/sqlc "<connection_string>"`. Save the first subdomain in the connection string address as `PROJECT_ID` for use throughout the test. Save the configuration string `'{"address":"<SYNC_SERVER_URL>","database":"<db_name>","projectID":"<PROJECT_ID>","organizationID":"org_sqlitecloud"}'` as `NETWORK_CONFIG` for use throughout the test.
+Ask the user to provide a connection string in the form of "sqlitecloud://<host>:<port>/<db_name>?apikey=<apikey>" to be later used with the sqlitecloud cli (sqlc) with `~/go/bin/sqlc "<connection_string>"`. Save the first subdomain in the connection string address as `PROJECT_ID` for use throughout the test. Use the "org_sqlitecloud" string as `ORG_ID`. 
+Save the configuration string `'{"address":"<SYNC_SERVER_URL>","database":"<db_name>","projectID":"<PROJECT_ID>","organizationID":"<ORG_ID>"}'` as `NETWORK_CONFIG` for use throughout the test.
 
-### Step 4: Setup SQLiteCloud with RLS
+### Step 5: Setup SQLiteCloud with RLS
 
 Connect to SQLiteCloud and prepare the environment:
 ```bash
@@ -117,10 +104,28 @@ Example for "user can only access their own rows":
    -- DELETE: User can only delete rows they own
    SET RLS DATABASE <db_name> TABLE <table_name> DELETE "auth_userid() = OLD.user_id"
    ```
-8. Initialize cloudsync: `CLOUDSYNC ENABLE <table_name>`
+8. Ask the user to enable the table from the sqlitecloud dashboard
+
+<!-- Enable CloudSync on selected tables
+
+### POST `/v1/orgs/:orgID/databases/:databaseID/cloudsync/enable`
+Purpose: enable CloudSync on selected tables.
+
+Fields:
+- Path: `orgID`, `databaseID`
+- Body: `tables` (non-empty string array)
+- Response data: empty object
+
+```bash
+curl --request POST "<SYNC_SERVER_URL>/v1/orgs/<ORG_ID>/databases/<db_name>/cloudsync/enable" \
+  --header "Authorization: Bearer $ORG_API_KEY" \
+  --header "Content-Type: application/json" \
+  --data '{"tables":["<table_name>"]}'
+``` -->
+
 9. Insert some initial test data (optional, can be done via SQLite clients)
 
-### Step 5: Get tokens for Two Users
+### Step 6: Get tokens for Two Users
 
 Get auth tokens for both test users by running the token script twice:
 
@@ -156,7 +161,7 @@ The response is in the following format:
 ```
 save the userId and the token values as USER2_ID and TOKEN_USER2 to be reused later
 
-### Step 6: Setup Four SQLite Databases
+### Step 7: Setup Four SQLite Databases
 
 Create four temporary SQLite databases using the Homebrew version (IMPORTANT: system sqlite3 cannot load extensions):
 
@@ -213,9 +218,11 @@ SELECT cloudsync_network_init('<NETWORK_CONFIG>');
 SELECT cloudsync_network_set_token('<TOKEN_USER2>');
 ```
 
-### Step 7: Insert Test Data
+### Step 8: Insert Test Data
 
-Insert distinct test data in each database. Use the extracted user IDs for the `user_id` column:
+Ask the user for optional details about the kind of test data to insert in the tables, otherwise generate some real world data for the choosen tables.
+Insert distinct test data in each database. Use the extracted user IDs for the if needed. 
+For example, for the simple table scenario:
 
 **Database 1A (User 1):**
 ```sql
@@ -239,7 +246,7 @@ INSERT INTO <table_name> (id, user_id, name, value) VALUES ('u2_a_2', '<USER2_ID
 INSERT INTO <table_name> (id, user_id, name, value) VALUES ('u2_b_1', '<USER2_ID>', 'User2 DeviceB Row1', 400);
 ```
 
-### Step 8: Execute Sync on All Databases
+### Step 9: Execute Sync on All Databases
 
 For each of the four SQLite databases, execute the sync operations:
 
@@ -259,7 +266,7 @@ SELECT cloudsync_network_check_changes();
 4. Sync Database 2B (send + check)
 5. Re-sync all databases (check_changes) to ensure full propagation
 
-### Step 9: Verify RLS Enforcement
+### Step 10: Verify RLS Enforcement
 
 After syncing all databases, verify that each database contains only the expected rows based on the RLS policy:
 
@@ -288,7 +295,7 @@ SELECT COUNT(*) FROM <table_name>;
 SELECT user_id, COUNT(*) FROM <table_name> GROUP BY user_id;
 ```
 
-### Step 10: Test Write RLS Policy Enforcement
+### Step 11: Test Write RLS Policy Enforcement
 
 Test that the server-side RLS policy blocks unauthorized writes by attempting to insert a row with a `user_id` that doesn't match the authenticated user's token.
 
@@ -334,7 +341,7 @@ SELECT * FROM <table_name> WHERE id = 'malicious_1';
 1. The malicious row appears in PostgreSQL (RLS bypass vulnerability)
 2. The malicious row syncs to User 2's databases (data leakage)
 
-### Step 11: Cleanup
+### Step 12: Cleanup
 
 In each SQLite database before closing:
 ```sql
