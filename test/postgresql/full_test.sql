@@ -38,7 +38,6 @@
 \ir 28_db_version_tracking.sql
 \ir 29_rls_multicol.sql
 \ir 30_null_prikey_insert.sql
-
 \ir 31_alter_table_sync.sql
 \ir 32_block_lww.sql
 \ir 33_block_lww_extended.sql
