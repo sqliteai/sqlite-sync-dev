@@ -83,6 +83,10 @@ jobs:
 
     steps:
 
+      - name: install git for alpine container
+        if: matrix.container
+        run: apk add --no-cache git
+
       - uses: actions/checkout@v4.2.2
         with:
           submodules: true
