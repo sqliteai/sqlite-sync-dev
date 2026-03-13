@@ -104,8 +104,8 @@ SELECT cloudsync_is_enabled('tasks');
 
 ```sql
 -- Configure connection to SQLite Cloud
--- Replace with your actual connection string from Step 1.3
-SELECT cloudsync_network_init('sqlitecloud://your-project-id.sqlite.cloud/todo_app.sqlite');
+-- Replace with your managedDatabaseId from the OffSync page on the SQLiteCloud dashboard
+SELECT cloudsync_network_init('your-managed-database-id');
 
 -- Configure authentication:
 -- Set your API key from Step 1.3
@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 SELECT cloudsync_init('tasks');
 
 -- Connect to the same cloud database
-SELECT cloudsync_network_init('sqlitecloud://your-project-id.sqlite.cloud/todo_app.sqlite');
+SELECT cloudsync_network_init('your-managed-database-id');
 SELECT cloudsync_network_set_apikey('your-api-key-here');
 
 -- Pull data from Device A - repeat until data is received
