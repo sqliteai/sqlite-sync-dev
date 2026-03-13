@@ -40,6 +40,13 @@
 \ir 30_null_prikey_insert.sql
 
 \ir 31_alter_table_sync.sql
+\ir 32_block_lww.sql
+\ir 33_block_lww_extended.sql
+\ir 34_block_lww_advanced.sql
+\ir 35_block_lww_edge_cases.sql
+\ir 36_block_lww_round3.sql
+\ir 37_block_lww_round4.sql
+\ir 38_block_lww_round5.sql
 
 -- 'Test summary'
 \echo '\nTest summary:'
