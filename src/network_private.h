@@ -8,12 +8,12 @@
 #ifndef __CLOUDSYNC_NETWORK_PRIVATE__
 #define __CLOUDSYNC_NETWORK_PRIVATE__
 
-#define CLOUDSYNC_ENDPOINT_PREFIX           "v2/cloudsync"
+#define CLOUDSYNC_DEFAULT_ADDRESS           "https://cloudsync.sqlite.ai"
+#define CLOUDSYNC_ENDPOINT_PREFIX           "v2/cloudsync/databases"
 #define CLOUDSYNC_ENDPOINT_UPLOAD           "upload"
 #define CLOUDSYNC_ENDPOINT_CHECK            "check"
 #define CLOUDSYNC_ENDPOINT_APPLY            "apply"
 #define CLOUDSYNC_ENDPOINT_STATUS           "status"
-#define CLOUDSYNC_DEFAULT_ENDPOINT_PORT     "443"
 #define CLOUDSYNC_HEADER_SQLITECLOUD        "Accept: sqlc/plain"
 #define CLOUDSYNC_HEADER_ORG                "X-CloudSync-Org"
 
@@ -35,7 +35,6 @@ char *network_data_get_siteid (network_data *data);
 char *network_data_get_orgid (network_data *data);
 bool network_data_set_endpoints (network_data *data, char *auth, char *check, char *upload, char *apply, char *status);
 
-bool network_compute_endpoints (sqlite3_context *context, network_data *data, const char *conn_string);
 bool network_send_buffer(network_data *data, const char *endpoint, const char *authentication, const void *blob, int blob_size);
 NETWORK_RESULT network_receive_buffer (network_data *data, const char *endpoint, const char *authentication, bool zero_terminated, bool is_post_request, char *json_payload, const char *custom_header);
 

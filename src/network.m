@@ -13,8 +13,6 @@ void network_buffer_cleanup (void *xdata) {
     if (xdata) CFRelease(xdata);
 }
 
-// network_compute_endpoints is implemented in network.c (shared across all platforms)
-
 bool network_send_buffer(network_data *data, const char *endpoint, const char *authentication, const void *blob, int blob_size) {
     NSString *urlString = [NSString stringWithUTF8String:endpoint];
     NSURL *url = [NSURL URLWithString:urlString];

@@ -600,120 +600,60 @@ int network_extract_query_param (const char *query, const char *key, char *outpu
     return -3; // Key not found
 }
 
-bool network_compute_endpoints (sqlite3_context *context, network_data *data, const char *conn_string) {
-    // JSON format: {"address":"https://host:port","database":"db.sqlite","projectID":"abc","organizationID":"org","apikey":"KEY"}
-    bool result = false;
-    size_t conn_len = strlen(conn_string);
-
-    char *address = json_extract_string(conn_string, conn_len, "address");
-    char *database = json_extract_string(conn_string, conn_len, "database");
-    char *project_id = json_extract_string(conn_string, conn_len, "projectID");
-    char *org_id = json_extract_string(conn_string, conn_len, "organizationID");
-    char *apikey = json_extract_string(conn_string, conn_len, "apikey");
-    char *token = json_extract_string(conn_string, conn_len, "token");
-
-    char *authentication = NULL;
-    char *check_endpoint = NULL;
-    char *upload_endpoint = NULL;
-    char *apply_endpoint = NULL;
-    char *status_endpoint = NULL;
-
-    // validate mandatory fields
-    if (!address || !database || !project_id || !org_id) {
-        sqlite3_result_error(context, "JSON must contain address, database, projectID, and organizationID", -1);
+static bool network_compute_endpoints_with_address (sqlite3_context *context, network_data *data, const char *address, const char *managedDatabaseId) {
+    if (!managedDatabaseId || managedDatabaseId[0] == '\0') {
+        sqlite3_result_error(context, "managedDatabaseId cannot be empty", -1);
         sqlite3_result_error_code(context, SQLITE_ERROR);
-        goto finalize;
+        return false;
     }
 
-    // parse address: scheme://host[:port]
-    const char *scheme_end = strstr(address, "://");
-    if (!scheme_end) {
-        sqlite3_result_error(context, "address must include scheme (e.g. https://host:port)", -1);
+    if (!address || address[0] == '\0') {
+        sqlite3_result_error(context, "address cannot be empty", -1);
         sqlite3_result_error_code(context, SQLITE_ERROR);
-        goto finalize;
+        return false;
     }
 
-    size_t scheme_len = scheme_end - address;
-    const char *host_start = scheme_end + 3;
-    const char *port_sep = strchr(host_start, ':');
-    const char *host_end = port_sep ? port_sep : host_start + strlen(host_start);
-    const char *port_str = port_sep ? port_sep + 1 : CLOUDSYNC_DEFAULT_ENDPOINT_PORT;
-
-    // build authentication from apikey or token
-    if (apikey) {
-        authentication = network_authentication_token("apikey", apikey);
-    } else if (token) {
-        authentication = network_authentication_token("token", token);
-    }
-
-    // build endpoints: {scheme}://{host}:{port}/v2/cloudsync/{projectID}/{database}/{siteId}/{action}
-    size_t requested = scheme_len + 3 + (host_end - host_start) + 1 + strlen(port_str) + 1
-                     + strlen(CLOUDSYNC_ENDPOINT_PREFIX) + 1 + strlen(project_id) + 1
-                     + strlen(database) + 1 + UUID_STR_MAXLEN + 1 + 16;
-    check_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
-    upload_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
-    apply_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
-    status_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
+    // build endpoints: {address}/v2/cloudsync/databases/{managedDatabaseId}/{siteId}/{action}
+    size_t requested = strlen(address) + 1
+                     + strlen(CLOUDSYNC_ENDPOINT_PREFIX) + 1 + strlen(managedDatabaseId) + 1
+                     + UUID_STR_MAXLEN + 1 + 16;
+    char *check_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
+    char *upload_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
+    char *apply_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
+    char *status_endpoint = (char *)cloudsync_memory_zeroalloc(requested);
 
     if (!check_endpoint || !upload_endpoint || !apply_endpoint || !status_endpoint) {
         sqlite3_result_error_code(context, SQLITE_NOMEM);
-        goto finalize;
-    }
-
-    // format: scheme://host:port/v2/cloudsync/projectID/database/siteId/action
-    snprintf(check_endpoint, requested, "%.*s://%.*s:%s/%s/%s/%s/%s/%s",
-             (int)scheme_len, address, (int)(host_end - host_start), host_start, port_str,
-             CLOUDSYNC_ENDPOINT_PREFIX, project_id, database, data->site_id, CLOUDSYNC_ENDPOINT_CHECK);
-    snprintf(upload_endpoint, requested, "%.*s://%.*s:%s/%s/%s/%s/%s/%s",
-             (int)scheme_len, address, (int)(host_end - host_start), host_start, port_str,
-             CLOUDSYNC_ENDPOINT_PREFIX, project_id, database, data->site_id, CLOUDSYNC_ENDPOINT_UPLOAD);
-    snprintf(apply_endpoint, requested, "%.*s://%.*s:%s/%s/%s/%s/%s/%s",
-             (int)scheme_len, address, (int)(host_end - host_start), host_start, port_str,
-             CLOUDSYNC_ENDPOINT_PREFIX, project_id, database, data->site_id, CLOUDSYNC_ENDPOINT_APPLY);
-    snprintf(status_endpoint, requested, "%.*s://%.*s:%s/%s/%s/%s/%s/%s",
-             (int)scheme_len, address, (int)(host_end - host_start), host_start, port_str,
-             CLOUDSYNC_ENDPOINT_PREFIX, project_id, database, data->site_id, CLOUDSYNC_ENDPOINT_STATUS);
-
-    result = true;
-
-finalize:
-    if (result) {
-        if (authentication) {
-            if (data->authentication) cloudsync_memory_free(data->authentication);
-            data->authentication = authentication;
-        }
-
-        if (data->org_id) cloudsync_memory_free(data->org_id);
-        data->org_id = cloudsync_string_dup(org_id);
-
-        if (data->check_endpoint) cloudsync_memory_free(data->check_endpoint);
-        data->check_endpoint = check_endpoint;
-
-        if (data->upload_endpoint) cloudsync_memory_free(data->upload_endpoint);
-        data->upload_endpoint = upload_endpoint;
-
-        if (data->apply_endpoint) cloudsync_memory_free(data->apply_endpoint);
-        data->apply_endpoint = apply_endpoint;
-
-        if (data->status_endpoint) cloudsync_memory_free(data->status_endpoint);
-        data->status_endpoint = status_endpoint;
-    } else {
-        if (authentication) cloudsync_memory_free(authentication);
         if (check_endpoint) cloudsync_memory_free(check_endpoint);
         if (upload_endpoint) cloudsync_memory_free(upload_endpoint);
         if (apply_endpoint) cloudsync_memory_free(apply_endpoint);
         if (status_endpoint) cloudsync_memory_free(status_endpoint);
+        return false;
     }
 
-    // cleanup JSON-extracted strings
-    if (address) cloudsync_memory_free(address);
-    if (database) cloudsync_memory_free(database);
-    if (project_id) cloudsync_memory_free(project_id);
-    if (org_id) cloudsync_memory_free(org_id);
-    if (apikey) cloudsync_memory_free(apikey);
-    if (token) cloudsync_memory_free(token);
+    // format: {address}/v2/cloudsync/databases/{managedDatabaseID}/{siteId}/{action}
+    snprintf(check_endpoint, requested, "%s/%s/%s/%s/%s",
+             address, CLOUDSYNC_ENDPOINT_PREFIX, managedDatabaseId, data->site_id, CLOUDSYNC_ENDPOINT_CHECK);
+    snprintf(upload_endpoint, requested, "%s/%s/%s/%s/%s",
+             address, CLOUDSYNC_ENDPOINT_PREFIX, managedDatabaseId, data->site_id, CLOUDSYNC_ENDPOINT_UPLOAD);
+    snprintf(apply_endpoint, requested, "%s/%s/%s/%s/%s",
+             address, CLOUDSYNC_ENDPOINT_PREFIX, managedDatabaseId, data->site_id, CLOUDSYNC_ENDPOINT_APPLY);
+    snprintf(status_endpoint, requested, "%s/%s/%s/%s/%s",
+             address, CLOUDSYNC_ENDPOINT_PREFIX, managedDatabaseId, data->site_id, CLOUDSYNC_ENDPOINT_STATUS);
 
-    return result;
+    if (data->check_endpoint) cloudsync_memory_free(data->check_endpoint);
+    data->check_endpoint = check_endpoint;
+
+    if (data->upload_endpoint) cloudsync_memory_free(data->upload_endpoint);
+    data->upload_endpoint = upload_endpoint;
+
+    if (data->apply_endpoint) cloudsync_memory_free(data->apply_endpoint);
+    data->apply_endpoint = apply_endpoint;
+
+    if (data->status_endpoint) cloudsync_memory_free(data->status_endpoint);
+    data->status_endpoint = status_endpoint;
+
+    return true;
 }
 
 void network_result_to_sqlite_error (sqlite3_context *context, NETWORK_RESULT res, const char *default_error_message) {
@@ -733,55 +673,58 @@ network_data *cloudsync_network_data (sqlite3_context *context) {
     return netdata;
 }
 
-void cloudsync_network_init (sqlite3_context *context, int argc, sqlite3_value **argv) {
-    DEBUG_FUNCTION("cloudsync_network_init");
-    
+static void cloudsync_network_init_internal (sqlite3_context *context, const char *address, const char *managedDatabaseId) {
     #ifndef CLOUDSYNC_OMIT_CURL
     curl_global_init(CURL_GLOBAL_ALL);
     #endif
-    
-    // no real network operations here
-    // just setup the network_data struct
+
     cloudsync_context *data = (cloudsync_context *)sqlite3_user_data(context);
     network_data *netdata = cloudsync_network_data(context);
     if (!netdata) goto abort_memory;
-    
+
     // init context
     uint8_t *site_id = (uint8_t *)cloudsync_context_init(data);
     if (!site_id) goto abort_siteid;
-    
+
     // save site_id string representation: 01957493c6c07e14803727e969f1d2cc
     cloudsync_uuid_v7_stringify(site_id, netdata->site_id, false);
-    
-    // connection string is a JSON object:
-    // {"address":"https://UUID.sqlite.cloud:443","database":"chinook.sqlite","projectID":"abc123","organizationID":"org456","apikey":"KEY"}
-    // apikey/token are optional and can be set later via cloudsync_network_set_token/cloudsync_network_set_apikey
-    
-    const char *connection_param = (const char *)sqlite3_value_text(argv[0]);
-    
+
     // compute endpoints
-    if (network_compute_endpoints(context, netdata, connection_param) == false) {
-        // error message/code already set inside network_compute_endpoints
+    // authentication can be set later via cloudsync_network_set_token/cloudsync_network_set_apikey
+    if (network_compute_endpoints_with_address(context, netdata, address, managedDatabaseId) == false) {
         goto abort_cleanup;
     }
-    
+
     cloudsync_set_auxdata(data, netdata);
     sqlite3_result_int(context, SQLITE_OK);
     return;
-    
+
 abort_memory:
     sqlite3_result_error(context, "Unable to allocate memory in cloudsync_network_init.", -1);
     sqlite3_result_error_code(context, SQLITE_NOMEM);
     goto abort_cleanup;
-    
+
 abort_siteid:
     sqlite3_result_error(context, "Unable to compute/retrieve site_id.", -1);
     sqlite3_result_error_code(context, SQLITE_MISUSE);
     goto abort_cleanup;
-    
+
 abort_cleanup:
     cloudsync_set_auxdata(data, NULL);
     network_data_free(netdata);
+}
+
+void cloudsync_network_init (sqlite3_context *context, int argc, sqlite3_value **argv) {
+    DEBUG_FUNCTION("cloudsync_network_init");
+    const char *managedDatabaseId = (const char *)sqlite3_value_text(argv[0]);
+    cloudsync_network_init_internal(context, CLOUDSYNC_DEFAULT_ADDRESS, managedDatabaseId);
+}
+
+void cloudsync_network_init_custom (sqlite3_context *context, int argc, sqlite3_value **argv) {
+    DEBUG_FUNCTION("cloudsync_network_init_custom");
+    const char *address = (const char *)sqlite3_value_text(argv[0]);
+    const char *managedDatabaseId = (const char *)sqlite3_value_text(argv[1]);
+    cloudsync_network_init_internal(context, address, managedDatabaseId);
 }
 
 void cloudsync_network_cleanup_internal (sqlite3_context *context) {    
@@ -828,7 +771,7 @@ void cloudsync_network_set_token (sqlite3_context *context, int argc, sqlite3_va
 
 void cloudsync_network_set_apikey (sqlite3_context *context, int argc, sqlite3_value **argv) {
     DEBUG_FUNCTION("cloudsync_network_set_apikey");
-    
+
     const char *value = (const char *)sqlite3_value_text(argv[0]);
     bool result = cloudsync_network_set_authentication_token(context, value, false);
     (result) ? sqlite3_result_int(context, SQLITE_OK) : sqlite3_result_error_code(context, SQLITE_NOMEM);
@@ -1258,6 +1201,9 @@ int cloudsync_network_register (sqlite3 *db, char **pzErrMsg, void *ctx) {
     rc = sqlite3_create_function(db, "cloudsync_network_init", 1, DEFAULT_FLAGS, ctx, cloudsync_network_init, NULL, NULL);
     if (rc != SQLITE_OK) goto cleanup;
     
+    rc = sqlite3_create_function(db, "cloudsync_network_init_custom", 2, DEFAULT_FLAGS, ctx, cloudsync_network_init_custom, NULL, NULL);
+    if (rc != SQLITE_OK) return rc;
+
     rc = sqlite3_create_function(db, "cloudsync_network_cleanup", 0, DEFAULT_FLAGS, ctx, cloudsync_network_cleanup, NULL, NULL);
     if (rc != SQLITE_OK) return rc;
     
