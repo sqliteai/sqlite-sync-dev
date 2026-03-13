@@ -4,12 +4,13 @@ Execute a full roundtrip sync test between multiple local SQLite databases and t
 
 ## Prerequisites
 - Connection string to a sqlitecloud project
-- HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
 
-### Step 1: Get Sync Server Address
+### Step 1: Get CloudSync Parameters
 
-Ask the user for the HTTP sync server base URL. Propose `https://cloudsync-staging-testing.fly.dev` as the default. Save this as `SYNC_SERVER_URL` for use throughout the test. The full sync endpoint will be `<SYNC_SERVER_URL>/<db_name>`.
+Ask the user for:
+
+1. **CloudSync server address** — propose `https://cloudsync.sqlite.ai` as default (this is the built-in default). If the user provides a different address, save it as `CUSTOM_ADDRESS` and use `cloudsync_network_init_custom` instead of `cloudsync_network_init`.
 
 ## Test Procedure
 
@@ -51,8 +52,7 @@ Ask the user to describe the policy in plain English.
 
 ### Step 4: Get sqlitecloud connection string from User
 
-Ask the user to provide a connection string in the form of "sqlitecloud://<host>:<port>/<db_name>?apikey=<apikey>" to be later used with the sqlitecloud cli (sqlc) with `~/go/bin/sqlc "<connection_string>"`. Save the first subdomain in the connection string address as `PROJECT_ID` for use throughout the test. Use the "org_sqlitecloud" string as `ORG_ID`. 
-Save the configuration string `'{"address":"<SYNC_SERVER_URL>","database":"<db_name>","projectID":"<PROJECT_ID>","organizationID":"<ORG_ID>"}'` as `NETWORK_CONFIG` for use throughout the test.
+Ask the user to provide a connection string in the form of "sqlitecloud://<host>:<port>/<db_name>?apikey=<apikey>" to be later used with the sqlitecloud cli (sqlc) with `~/go/bin/sqlc "<connection_string>"`.
 
 ### Step 5: Setup SQLiteCloud with RLS
 
@@ -104,7 +104,19 @@ Example for "user can only access their own rows":
    -- DELETE: User can only delete rows they own
    SET RLS DATABASE <db_name> TABLE <table_name> DELETE "auth_userid() = OLD.user_id"
    ```
-8. Ask the user to enable the table from the sqlitecloud dashboard
+8. Ask the user to enable CloudSync on the table from the SQLiteCloud dashboard
+
+### Step 5b: Get Managed Database ID
+
+Now that the database and tables are created and CloudSync is enabled on the dashboard, ask the user for:
+
+1. **Managed Database ID** — the `managedDatabaseId` returned by the CloudSync service. For SQLiteCloud projects, it can be obtained from the project's OffSync page on the dashboard after enabling CloudSync on the table.
+
+Save as `MANAGED_DB_ID`.
+
+For the network init call throughout the test, use:
+- Default address: `SELECT cloudsync_network_init('<MANAGED_DB_ID>');`
+- Custom address: `SELECT cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>');`
 
 <!-- Enable CloudSync on selected tables
 
@@ -178,7 +190,7 @@ $SQLITE_BIN /tmp/sync_test_user1_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<TOKEN_USER1>');
 ```
 
@@ -190,7 +202,7 @@ $SQLITE_BIN /tmp/sync_test_user1_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<TOKEN_USER1>');
 ```
 
@@ -202,7 +214,7 @@ $SQLITE_BIN /tmp/sync_test_user2_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<TOKEN_USER2>');
 ```
 
@@ -214,7 +226,7 @@ $SQLITE_BIN /tmp/sync_test_user2_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<TOKEN_USER2>');
 ```
 
@@ -417,14 +429,14 @@ user_id UUID NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000'
 ```sql
 -- WRONG: Separate sessions won't work
 -- Session 1:
-SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('...');
 -- Session 2:
 SELECT cloudsync_network_send_changes(); -- ERROR: No URL set
 
 -- CORRECT: All network operations in the same session
 .load dist/cloudsync.dylib
-SELECT cloudsync_network_init('<NETWORK_CONFIG>');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('...');
 SELECT cloudsync_network_send_changes();
 SELECT cloudsync_terminate();

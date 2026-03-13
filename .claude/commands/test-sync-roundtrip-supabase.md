@@ -4,7 +4,6 @@ Execute a full roundtrip sync test between a local SQLite database and the local
 
 ## Prerequisites
 - Supabase instance running (local Docker or remote)
-- HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
 
 ## Test Procedure
@@ -13,13 +12,14 @@ Execute a full roundtrip sync test between a local SQLite database and the local
 
 Ask the user for the following parameters:
 
-1. **Sync server URL**: Propose `https://cloudsync-staging-testing.fly.dev` as default. Save as `SYNC_SERVER_URL`. The full sync endpoint will be `<SYNC_SERVER_URL>/postgres`.
+1. **CloudSync server address** — propose `https://cloudsync.sqlite.ai` as default (this is the built-in default). If the user provides a different address, save it as `CUSTOM_ADDRESS` and use `cloudsync_network_init_custom` instead of `cloudsync_network_init`.
 
 2. **PostgreSQL connection string**: Propose `postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres` as default. Save as `PG_CONN`. Use this for all `psql` connections throughout the test.
 
 3. **Supabase API key** (used for JWT token generation): Propose `sb_secret_N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz` as default. Save as `SUPABASE_APIKEY`.
 
 Derive `AUTH_URL` from the PostgreSQL connection string by extracting the host and using port `54321` (Supabase GoTrue). For example, if `PG_CONN` is `postgresql://user:pass@10.0.0.5:54322/postgres`, then `AUTH_URL` is `http://10.0.0.5:54321`. For `127.0.0.1`, use `http://127.0.0.1:54321`.
+
 
 ### Step 2: Get DDL from User
 
@@ -95,6 +95,16 @@ Inside psql:
 5. Initialize cloudsync: `SELECT cloudsync_init('<table_name>');`
 6. Insert some test data into the table
 
+### Step 5b: Get Managed Database ID
+
+Now that the database and tables are created and cloudsync is initialized, ask the user for:
+
+1. **Managed Database ID** — the `managedDatabaseId` returned by the CloudSync service. Save as `MANAGED_DB_ID`.
+
+For the network init call throughout the test, use:
+- Default address: `SELECT cloudsync_network_init('<MANAGED_DB_ID>');`
+- Custom address: `SELECT cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>');`
+
 ### Step 6: Setup SQLite
 
 Create a temporary SQLite database using the Homebrew version (IMPORTANT: system sqlite3 cannot load extensions):
@@ -112,7 +122,7 @@ Inside sqlite3:
 -- Create table with SQLite DDL
 <CREATE_TABLE_query>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<jwt_token>');
 -- Insert test data (different from PostgreSQL to test merge)
 <INSERT_statements>

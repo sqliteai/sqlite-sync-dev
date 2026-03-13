@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
-- **BREAKING: `cloudsync_network_init` now accepts JSON instead of a URL string.** The new format adds `projectID` and `organizationID` fields for multi-organization CloudSync support. An `X-CloudSync-Org` header is automatically sent with every request.
+- **BREAKING: `cloudsync_network_init` now accepts a `managedDatabaseId` instead of a connection string.** The `managedDatabaseId` is returned by the CloudSync service when a new database is registered for sync. For SQLiteCloud projects, it can be obtained from the project's OffSync page on the dashboard.
 
   Before:
   ```sql
@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
   After:
   ```sql
-  SELECT cloudsync_network_init('{"address":"https://myproject.sqlite.cloud:443","database":"mydb.sqlite","projectID":"abc123","organizationID":"org456","apikey":"KEY"}');
+  SELECT cloudsync_network_init('your-managed-database-id');
   ```
 
 - **BREAKING: Sync functions now return structured JSON.** `cloudsync_network_send_changes`, `cloudsync_network_check_changes`, and `cloudsync_network_sync` return a JSON object instead of a plain integer. This provides richer status information including sync state, version numbers, row counts, and affected table names.

@@ -287,7 +287,8 @@ UPDATE my_data SET value = 'Updated: Hello from device A!' WHERE value LIKE 'Hel
 SELECT * FROM my_data ORDER BY created_at;
 
 -- Configure network connection before using the network sync functions
-SELECT cloudsync_network_init('sqlitecloud://your-project-id.sqlite.cloud/database.sqlite');
+-- The managedDatabaseId is obtained from the OffSync page on the SQLiteCloud dashboard
+SELECT cloudsync_network_init('your-managed-database-id');
 SELECT cloudsync_network_set_apikey('your-api-key-here');
 -- Or use token authentication (required for Row-Level Security)
 -- SELECT cloudsync_network_set_token('your_auth_token');

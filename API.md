@@ -20,7 +20,7 @@ This document provides a reference for the SQLite functions provided by the `sql
   - [`cloudsync_begin_alter()`](#cloudsync_begin_altertable_name)
   - [`cloudsync_commit_alter()`](#cloudsync_commit_altertable_name)
 - [Network Functions](#network-functions)
-  - [`cloudsync_network_init()`](#cloudsync_network_initconnection_string)
+  - [`cloudsync_network_init()`](#cloudsync_network_initmanageddatabaseid)
   - [`cloudsync_network_cleanup()`](#cloudsync_network_cleanup)
   - [`cloudsync_network_set_token()`](#cloudsync_network_set_tokentoken)
   - [`cloudsync_network_set_apikey()`](#cloudsync_network_set_apikeyapikey)
@@ -287,20 +287,20 @@ SELECT cloudsync_commit_alter('my_table');
 
 ## Network Functions
 
-### `cloudsync_network_init(connection_string)`
+### `cloudsync_network_init(managedDatabaseId)`
 
-**Description:** Initializes the `sqlite-sync` network component. This function parses the connection string to configure change checking and upload endpoints, and initializes the cURL library.
+**Description:** Initializes the `sqlite-sync` network component. This function configures the endpoints for the CloudSync service and initializes the cURL library.
 
 **Parameters:**
 
-- `connection_string` (TEXT): The connection string for the remote synchronization server. The format is `sqlitecloud://<host>:<port>/<database>?<options>`.
+- `managedDatabaseId` (TEXT): The managed database identifier returned by the CloudSync service when a new database is registered for sync. For SQLiteCloud projects, this value can be obtained from the project's OffSync page on the dashboard.
 
 **Returns:** None.
 
 **Example:**
 
 ```sql
-SELECT cloudsync_network_init('<projectid>.sqlite.cloud/<db>.sqlite');
+SELECT cloudsync_network_init('your-managed-database-id');
 ```
 
 ---

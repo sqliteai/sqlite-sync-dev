@@ -4,7 +4,6 @@ Execute a full roundtrip sync test between multiple local SQLite databases and t
 
 ## Prerequisites
 - Supabase instance running (local Docker or remote)
-- HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
 
 ## Test Procedure
@@ -13,7 +12,7 @@ Execute a full roundtrip sync test between multiple local SQLite databases and t
 
 Ask the user for the following parameters:
 
-1. **Sync server URL**: Propose `https://cloudsync-staging-testing.fly.dev` as default. Save as `SYNC_SERVER_URL`. The full sync endpoint will be `<SYNC_SERVER_URL>/postgres`.
+1. **CloudSync server address** — propose `https://cloudsync.sqlite.ai` as default (this is the built-in default). If the user provides a different address, save it as `CUSTOM_ADDRESS` and use `cloudsync_network_init_custom` instead of `cloudsync_network_init`.
 
 2. **PostgreSQL connection string**: Propose `postgresql://supabase_admin:postgres@127.0.0.1:54322/postgres` as default. Save as `PG_CONN`. Use this for all `psql` connections throughout the test.
 
@@ -154,6 +153,16 @@ Inside psql:
 9. Initialize cloudsync: `SELECT cloudsync_init('<table_name>');`
 10. Insert some initial test data (optional, can be done via SQLite clients)
 
+### Step 5b: Get Managed Database ID
+
+Now that the database and tables are created and cloudsync is initialized, ask the user for:
+
+1. **Managed Database ID** — the `managedDatabaseId` returned by the CloudSync service. Save as `MANAGED_DB_ID`.
+
+For the network init call throughout the test, use:
+- Default address: `SELECT cloudsync_network_init('<MANAGED_DB_ID>');`
+- Custom address: `SELECT cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>');`
+
 ### Step 6: Get JWT Tokens for Two Users
 
 Get JWT tokens for both test users by running the token script twice:
@@ -191,7 +200,7 @@ $SQLITE_BIN /tmp/sync_test_user1_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<JWT_USER1>');
 ```
 
@@ -203,7 +212,7 @@ $SQLITE_BIN /tmp/sync_test_user1_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<JWT_USER1>');
 ```
 
@@ -215,7 +224,7 @@ $SQLITE_BIN /tmp/sync_test_user2_a.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<JWT_USER2>');
 ```
 
@@ -227,7 +236,7 @@ $SQLITE_BIN /tmp/sync_test_user2_b.db
 .load dist/cloudsync.dylib
 <CREATE_TABLE_query_sqlite>
 SELECT cloudsync_init('<table_name>');
-SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('<JWT_USER2>');
 ```
 
@@ -485,14 +494,14 @@ Ensure column types are compatible between SQLite and PostgreSQL:
 ```sql
 -- WRONG: Separate sessions won't work
 -- Session 1:
-SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('...');
 -- Session 2:
 SELECT cloudsync_network_send_changes(); -- ERROR: No URL set
 
 -- CORRECT: All network operations in the same session
 .load dist/cloudsync.dylib
-SELECT cloudsync_network_init('<SYNC_SERVER_URL>/postgres');
+SELECT cloudsync_network_init('<MANAGED_DB_ID>');  -- or cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>') if using a non-default address
 SELECT cloudsync_network_set_token('...');
 SELECT cloudsync_network_send_changes();
 SELECT cloudsync_terminate();

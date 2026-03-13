@@ -4,9 +4,7 @@ Execute a stress test against the CloudSync server using multiple concurrent loc
 
 ## Prerequisites
 - Connection string to a sqlitecloud project
-- HTTP sync server running (default: https://cloudsync-staging-testing.fly.dev)
 - Built cloudsync extension (`make` to build `dist/cloudsync.dylib`)
-- CloudSync already enabled on the test table from the SQLiteCloud dashboard
 
 ## Test Configuration
 
@@ -14,7 +12,7 @@ Execute a stress test against the CloudSync server using multiple concurrent loc
 
 Ask the user for the following configuration using a single question set:
 
-1. **Sync Server URL** — propose `https://cloudsync-staging-testing.fly.dev` as default
+1. **CloudSync server address** — propose `https://cloudsync.sqlite.ai` as default (this is the built-in default). If the user provides a different address, save it as `CUSTOM_ADDRESS` and use `cloudsync_network_init_custom` instead of `cloudsync_network_init`.
 2. **SQLiteCloud connection string** — format: `sqlitecloud://<host>:<port>/<db_name>?apikey=<apikey>`. If no `<db_name>` is in the path, ask the user for one or propose `test_stress_sync`.
 3. **Scale** — offer these options:
    - Small: 1K rows, 5 iterations, 2 concurrent databases
@@ -28,14 +26,11 @@ Ask the user for the following configuration using a single question set:
    ```
 
 Save these as variables:
-- `SYNC_SERVER_URL`
+- `CUSTOM_ADDRESS` (only if the user provided a non-default address)
 - `CONNECTION_STRING` (the full sqlitecloud:// connection string)
 - `DB_NAME` (database name extracted or provided)
 - `HOST` (hostname extracted from connection string)
 - `APIKEY` (apikey extracted from connection string)
-- `PROJECT_ID` (first subdomain from the host)
-- `ORG_ID` = `org_sqlitecloud`
-- `NETWORK_CONFIG` = `'{"address":"<SYNC_SERVER_URL>","database":"<DB_NAME>","projectID":"<PROJECT_ID>","organizationID":"<ORG_ID>"}'`
 - `ROWS` (number of rows per iteration)
 - `ITERATIONS` (number of delete/insert/update cycles)
 - `NUM_DBS` (number of concurrent databases)
@@ -59,7 +54,19 @@ Connect to SQLiteCloud using `~/go/bin/sqlc` (last command must be `quit`). Note
    ```
 7. Ask the user to enable CloudSync on the table from the SQLiteCloud dashboard
 
-### Step 3: Get Auth Tokens (if RLS enabled)
+### Step 3: Get Managed Database ID
+
+Now that the database and tables are created and CloudSync is enabled on the dashboard, ask the user for:
+
+1. **Managed Database ID** — the `managedDatabaseId` returned by the CloudSync service. For SQLiteCloud projects, it can be obtained from the project's OffSync page on the dashboard after enabling CloudSync on the table.
+
+Save as `MANAGED_DB_ID`.
+
+For the network init call throughout the test, use:
+- Default address: `SELECT cloudsync_network_init('<MANAGED_DB_ID>');`
+- Custom address: `SELECT cloudsync_network_init_custom('<CUSTOM_ADDRESS>', '<MANAGED_DB_ID>');`
+
+### Step 4: Get Auth Tokens (if RLS enabled)
 
 Create tokens for the test users. Create as many users as needed for the number of concurrent databases (assign 2 databases per user, or 1 per user if NUM_DBS <= 2).
 
@@ -75,7 +82,7 @@ Save each user's `token` and `userId` from the response.
 
 If RLS is disabled, skip this step — tokens are not required.
 
-### Step 4: Run the Concurrent Stress Test
+### Step 5: Run the Concurrent Stress Test
 
 Create a bash script at `/tmp/stress_test_concurrent.sh` that:
 
@@ -113,7 +120,7 @@ Create a bash script at `/tmp/stress_test_concurrent.sh` that:
 
 Run the script with a 10-minute timeout.
 
-### Step 5: Detailed Error Analysis
+### Step 6: Detailed Error Analysis
 
 After the test completes, provide a detailed breakdown:
 
@@ -122,7 +129,7 @@ After the test completes, provide a detailed breakdown:
 3. **Timeline analysis**: do errors cluster at specific iterations or spread evenly?
 4. **Read full log files** if errors are found — show the first and last 30 lines of each log with errors
 
-### Step 6: Optional — Verify Data Integrity
+### Step 7: Optional — Verify Data Integrity
 
 If the test passes (or even if some errors occurred), verify the final state:
 
