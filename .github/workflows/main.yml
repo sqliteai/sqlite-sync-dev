@@ -84,6 +84,8 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4.2.2
+        with:
+          submodules: true
 
       - name: android setup java
         if: matrix.name == 'android-aar'
@@ -234,6 +236,8 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4.2.2
+        with:
+          submodules: true
 
       - name: build and start postgresql container
         run: make postgres-docker-rebuild
