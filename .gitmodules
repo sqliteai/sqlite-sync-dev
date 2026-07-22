@@ -1,3 +1,0 @@
-[submodule "modules/fractional-indexing"]
-	path = modules/fractional-indexing
-	url = https://github.com/sqliteai/fractional-indexing

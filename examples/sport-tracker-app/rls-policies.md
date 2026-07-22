@@ -1,78 +1,15 @@
-## RLS Policies
+# ⚠️ This repository has moved
 
+`sqlite-sync-dev` was a temporary development fork of **SQLite Sync**. It has already been
+merged into the official repository, where development continues:
 
-### Users
+## ➡️ [github.com/sqliteai/sqlite-sync](https://github.com/sqliteai/sqlite-sync)
 
-#### SELECT
+The page you were looking for now lives at:
 
-```sql
-auth_userid() = users.id OR json_extract(auth_json(), '$.name') = 'coach'
-```
-
-#### INSERT
-
-```sql
-auth_userid() = NEW.id
-```
-
-#### UPDATE
-
-_No policy_
-
-#### DELETE
-
-_No policy_
+### ➡️ [examples/sport-tracker-app/rls-policies.md](https://github.com/sqliteai/sqlite-sync/blob/main/examples/sport-tracker-app/rls-policies.md)
 
 ---
 
-### Activities 
-
-#### SELECT
-
-```sql
-auth_userid() = activities.user_id OR json_extract(auth_json(), '$.name') = 'coach'
-```
-
-#### INSERT
-
-```sql
-auth_userid() = NEW.user_id
-```
-
-#### UPDATE
-
-_No policy_
-
-#### DELETE
-
-```sql
-auth_userid() = OLD.user_id OR json_extract(auth_json(), '$.name') = 'coach'
-```
-
----
-
-### Workouts
-
-#### SELECT
-
-```sql
-auth_userid() = workouts.user_id OR json_extract(auth_json(), '$.name') = 'coach'
-```
-
-#### INSERT
-
-```sql
-json_extract(auth_json(), '$.name') = 'coach'
-```
-
-#### UPDATE
-
-```sql
-OLD.user_id = auth_userid() OR json_extract(auth_json(), '$.name') = 'coach'
-```
-
-#### DELETE
-
-```sql
-json_extract(auth_json(), '$.name') = 'coach'
-```
+This repository is **archived and read-only**. Everything left here is outdated and kept only
+so that existing links keep working — please do not use it as a reference.

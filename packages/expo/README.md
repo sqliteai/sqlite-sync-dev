@@ -1,136 +1,15 @@
-# @sqliteai/sqlite-sync-expo-dev Generator
+# ⚠️ This repository has moved
 
-This directory contains the generator script for the `@sqliteai/sqlite-sync-expo-dev` npm package.
+`sqlite-sync-dev` was a temporary development fork of **SQLite Sync**. It has already been
+merged into the official repository, where development continues:
 
-## How It Works
+## ➡️ [github.com/sqliteai/sqlite-sync](https://github.com/sqliteai/sqlite-sync)
 
-The `generate-expo-package.js` script creates a complete npm package from CI build artifacts:
+The page you were looking for now lives at:
 
-1. Generates `package.json`, `app.plugin.js`, `src/index.js`, `src/index.d.ts`, `README.md`
-2. Copies iOS `CloudSync.xcframework` from artifacts
-3. Copies Android `cloudsync.so` files for each architecture
+### ➡️ [packages/expo/README.md](https://github.com/sqliteai/sqlite-sync/blob/main/packages/expo/README.md)
 
-## Usage (CI)
+---
 
-This script is called automatically during the release workflow:
-
-```bash
-node generate-expo-package.js <version> <artifacts-dir> <output-dir>
-```
-
-Example:
-
-```bash
-node generate-expo-package.js 0.9.92 ../../artifacts ./expo-package
-cd expo-package && npm publish --provenance --access public
-```
-
-## Generated Package Structure
-
-```
-expo-package/
-├── package.json
-├── src/
-│   ├── index.js
-│   └── index.d.ts
-├── app.plugin.js
-├── ios/
-│   └── CloudSync.xcframework/
-├── android/
-│   └── jniLibs/
-│       ├── arm64-v8a/cloudsync.so
-│       ├── armeabi-v7a/cloudsync.so
-│       └── x86_64/cloudsync.so
-├── README.md
-└── LICENSE.md
-```
-
-## Testing Locally
-
-To test the generator locally, you need to set up mock artifacts that simulate what CI produces.
-
-### Step 1: Get binaries
-
-**Option A: Download from latest release**
-
-```bash
-VERSION="0.9.92"  # or latest version
-
-mkdir -p artifacts/cloudsync-apple-xcframework
-mkdir -p artifacts/cloudsync-android-arm64-v8a
-mkdir -p artifacts/cloudsync-android-armeabi-v7a
-mkdir -p artifacts/cloudsync-android-x86_64
-
-# Download xcframework
-curl -L "https://github.com/sqliteai/sqlite-sync-dev/releases/download/${VERSION}/cloudsync-apple-xcframework-${VERSION}.zip" -o xcframework.zip
-unzip xcframework.zip -d artifacts/cloudsync-apple-xcframework/
-rm xcframework.zip
-
-# Download Android binaries
-for arch in arm64-v8a armeabi-v7a x86_64; do
-  curl -L "https://github.com/sqliteai/sqlite-sync-dev/releases/download/${VERSION}/cloudsync-android-${arch}-${VERSION}.zip" -o android-${arch}.zip
-  unzip android-${arch}.zip -d artifacts/cloudsync-android-${arch}/
-  rm android-${arch}.zip
-done
-```
-
-**Option B: Build from source**
-
-```bash
-# Build xcframework (macOS only)
-make xcframework
-
-# Build Android (requires Android NDK)
-export ANDROID_NDK=/path/to/ndk
-make extension PLATFORM=android ARCH=arm64-v8a
-make extension PLATFORM=android ARCH=armeabi-v7a
-make extension PLATFORM=android ARCH=x86_64
-
-# Move to artifacts structure
-mkdir -p artifacts/cloudsync-apple-xcframework
-mkdir -p artifacts/cloudsync-android-arm64-v8a
-mkdir -p artifacts/cloudsync-android-armeabi-v7a
-mkdir -p artifacts/cloudsync-android-x86_64
-
-cp -r dist/CloudSync.xcframework artifacts/cloudsync-apple-xcframework/
-# Copy .so files similarly...
-```
-
-### Step 2: Run the generator
-
-```bash
-cd packages/expo
-node generate-expo-package.js 0.9.92 ../../artifacts ./expo-package
-```
-
-### Step 3: Test in a Expo app
-
-```bash
-# In your Expo app
-npm install /path/to/sqlite-sync-dev/packages/expo/expo-package
-
-# Or use file: reference in package.json
-# "@sqliteai/sqlite-sync-expo-dev": "file:/path/to/sqlite-sync-dev/packages/expo/expo-package"
-```
-
-Update `app.json`:
-
-```json
-{
-  "expo": {
-    "plugins": ["@sqliteai/sqlite-sync-expo-dev"]
-  }
-}
-```
-
-Run prebuild and verify:
-
-```bash
-npx expo prebuild --clean
-
-# Check iOS
-ls ios/<YourApp>/CloudSync.xcframework
-
-# Check Android
-ls android/app/src/main/jniLibs/arm64-v8a/cloudsync.so
-```
+This repository is **archived and read-only**. Everything left here is outdated and kept only
+so that existing links keep working — please do not use it as a reference.
